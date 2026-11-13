@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-zcode-design>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>番茄钟 · 设计交付</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #111110;
+    --bg-subtle: #191918;
+    --surface: #1e1e1d;
+    --surface-raised: #252524;
+    --border: rgba(255,255,255,0.06);
+    --border-hover: rgba(255,255,255,0.12);
+    --accent: #c89b6c;
+    --accent-dim: rgba(200,155,108,0.15);
+    --text: #e8e6e3;
+    --text-secondary: rgba(232,230,227,0.6);
+    --text-tertiary: rgba(232,230,227,0.32);
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+    --shadow-md: 0 4px 16px rgba(0,0,0,0.35), 0 2px 6px rgba(0,0,0,0.25);
+    --shadow-lg: 0 12px 40px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.3);
+    --shadow-drag: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1.5px var(--accent);
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 20px;
+    --font-sans: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --font-mono: "SF Mono", "Fira Code", "JetBrains Mono", "Cascadia Code", monospace;
+    --note-bg: #2a2520;
+    --note-border: rgba(200,155,108,0.2);
+    --transition-fast: 120ms cubic-bezier(0.25, 0.1, 0.25, 1);
+    --transition-normal: 200ms cubic-bezier(0.25, 0.1, 0.25, 1);
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    font-family: var(--font-sans);
+    color: var(--text);
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* grain overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 512px 512px;
+    mix-blend-mode: overlay;
+  }
+
+  /* ===== canvas viewport ===== */
+  .canvas-viewport {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    cursor: grab;
+  }
+  .canvas-viewport.panning { cursor: grabbing; }
+
+  .canvas-world {
+    position: absolute;
+    left: 0; top: 0;
+    width: 20000px; height: 20000px;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+
+  /* ===== dot grid ===== */
+  .canvas-viewport {
+    --grid-color: rgba(255,255,255,0.04);
+  }
+
+  /* ===== draggable elements ===== */
+  .canvas-el {
+    position: absolute;
+    cursor: grab;
+    transition: box-shadow var(--transition-normal), transform var(--transition-fast);
+  }
+  .canvas-el:hover { z-index: 10; }
+  .canvas-el.dragging {
+    cursor: grabbing;
+    z-index: 999;
+    box-shadow: var(--shadow-drag) !important;
+    transform: scale(1.01);
+    transition: none;
+  }
+
+  /* ===== section header ===== */
+  .section-header {
+    position: absolute;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    white-space: nowrap;
+  }
+  .section-header .section-num {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    opacity: 0.8;
+  }
+  .section-header .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+  }
+  .section-header .section-line {
+    flex: none;
+    width: 48px;
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent) 0%, transparent 100%);
+    opacity: 0.3;
+  }
+
+  /* ===== title ===== */
+  .canvas-title {
+    position: absolute;
+    pointer-events: none;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+    color: var(--text);
+  }
+
+  /* ===== text block ===== */
+  .canvas-text {
+    position: absolute;
+    line-height: 1.7;
+    letter-spacing: 0.005em;
+    color: var(--text-secondary);
+    min-width: 200px;
+    max-width: 560px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* ===== tag ===== */
+  .canvas-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 100px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--text-secondary);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: border-color var(--transition-fast), background var(--transition-fast);
+    white-space: nowrap;
+  }
+  .canvas-tag:hover {
+    border-color: var(--border-hover);
+    background: var(--surface-raised);
+  }
+  .canvas-tag .tag-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+
+  /* ===== context card ===== */
+  .context-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    min-width: 220px;
+    transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
+  }
+  .context-card:hover {
+    border-color: var(--border-hover);
+    box-shadow: var(--shadow-md);
+  }
+  .context-card .card-head {
+    padding: 16px 20px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .context-card .card-head .head-indicator {
+    width: 3px;
+    height: 16px;
+    border-radius: 2px;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+  .context-card .card-head h3 {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--text);
+  }
+  .context-card .card-content {
+    padding: 0 20px 20px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+  }
+  .context-card .card-content ul {
+    list-style: none;
+    padding: 0;
+  }
+  .context-card .card-content li {
+    padding: 4px 0;
+    padding-left: 12px;
+    position: relative;
+  }
+  .context-card .card-content li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 11px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--text-tertiary);
+  }
+
+  /* ===== design system card ===== */
+  .ds-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
+  }
+  .ds-card:hover {
+    border-color: var(--border-hover);
+    box-shadow: var(--shadow-md);
+  }
+  .ds-card .ds-head {
+    padding: 16px 20px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+  }
+  .ds-card .ds-body {
+    padding: 0 20px 20px;
+  }
+
+  /* color type */
+  .ds-card .color-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+    gap: 8px;
+  }
+  .ds-card .color-chip {
+    aspect-ratio: 1;
+    border-radius: var(--radius-sm);
+    position: relative;
+    transition: transform var(--transition-fast);
+  }
+  .ds-card .color-chip:hover { transform: scale(1.08); }
+  .ds-card .color-chip .chip-label {
+    position: absolute;
+    bottom: -18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+  }
+
+  /* typography type */
+  .ds-card .type-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .ds-card .type-row {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+  .ds-card .type-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-tertiary);
+    min-width: 36px;
+    flex-shrink: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .ds-card .type-sample {
+    color: var(--text);
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ===== color swatch (standalone) ===== */
+  .color-swatch-group {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 20px;
+  }
+  .swatch-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .swatch-circle {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255,255,255,0.08);
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  }
+  .swatch-circle:hover {
+    transform: scale(1.1);
+    box-shadow: var(--shadow-md);
+  }
+  .swatch-name {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-align: center;
+  }
+  .swatch-hex {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-tertiary);
+    text-align: center;
+  }
+
+  /* ===== type sample (standalone) ===== */
+  .type-sample-group {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 400px;
+  }
+  .type-sample-row {
+    display: flex;
+    align-items: baseline;
+    gap: 20px;
+  }
+  .type-sample-meta {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-tertiary);
+    min-width: 48px;
+    flex-shrink: 0;
+    letter-spacing: 0.04em;
+  }
+  .type-sample-text {
+    color: var(--text);
+    line-height: 1.25;
+  }
+
+  /* ===== note (sticky) ===== */
+  .canvas-note {
+    background: var(--note-bg);
+    border: 1px solid var(--note-border);
+    border-radius: var(--radius-md);
+    padding: 16px 18px;
+    min-width: 200px;
+    max-width: 300px;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow var(--transition-normal), transform var(--transition-fast);
+  }
+  .canvas-note:hover {
+    box-shadow: var(--shadow-md);
+  }
+  .canvas-note .note-tag {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+    opacity: 0.7;
+    margin-bottom: 8px;
+  }
+  .canvas-note .note-body {
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text-secondary);
+  }
+
+  /* ===== design page ===== */
+  .design-page {
+    background: #fff;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-lg);
+    transition: box-shadow var(--transition-normal);
+  }
+  .design-page:hover {
+    box-shadow: 0 16px 56px rgba(0,0,0,0.5), 0 6px 16px rgba(0,0,0,0.35);
+  }
+  .design-page .page-content {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  .page-label {
+    position: absolute;
+    bottom: -32px;
+    left: 0;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .page-label .label-num {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--accent);
+    opacity: 0.6;
+  }
+
+  /* ===== diagram ===== */
+  .canvas-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+  .canvas-diagram .diagram-content {
+    width: 100%;
+    height: 100%;
+    padding: 20px;
+  }
+
+  /* ===== zoom controls ===== */
+  .zoom-controls {
+    position: fixed;
+    bottom: 24px; right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    z-index: 100;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+  }
+  .zoom-btn {
+    width: 36px; height: 36px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 15px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--transition-fast), color var(--transition-fast);
+  }
+  .zoom-btn:hover {
+    background: rgba(255,255,255,0.06);
+    color: var(--text);
+  }
+  .zoom-btn:active {
+    background: rgba(255,255,255,0.03);
+  }
+  .zoom-label {
+    min-width: 50px; height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-tertiary);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+
+  /* ===== coord indicator ===== */
+  .coord-indicator {
+    position: fixed;
+    bottom: 28px; left: 24px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text-tertiary);
+    z-index: 100;
+    padding: 4px 10px;
+    background: rgba(17,17,16,0.85);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* ===== keyboard hint ===== */
+  .kbd-hint {
+    position: fixed;
+    top: 20px; right: 24px;
+    z-index: 100;
+    font-size: 10px;
+    color: var(--text-tertiary);
+    display: flex;
+    gap: 12px;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+  }
+  .canvas-viewport:hover ~ .kbd-hint { opacity: 1; }
+  .kbd-hint kbd {
+    font-family: var(--font-mono);
+    padding: 2px 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 10px;
+  }
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="canvas-viewport" id="viewport">
+  <div class="canvas-world" id="world"></div>
+</div>
+
+<div class="zoom-controls">
+  <button class="zoom-btn" id="zoomOut" aria-label="">&#8722;</button>
+  <div class="zoom-label" id="zoomLabel">100%</div>
+  <button class="zoom-btn" id="zoomIn" aria-label="">+</button>
+  <button class="zoom-btn" id="zoomReset" title="" aria-label="">&#8962;</button>
+</div>
+
+<div class="coord-indicator" id="coordIndicator">0, 0</div>
+
+<div class="kbd-hint" id="kbdHint"></div>
+
+<script>
+(() => {
+  // ═══════════════════════════════════════════════════════════
+  // LOCALIZE: instantiating agent MUST translate every value in
+  // UI_STRINGS to the user's conversation language. Machine fields
+  // (id/class/data-*) remain English.
+  // ═══════════════════════════════════════════════════════════
+  const UI_STRINGS = {
+    projectDescription: 'Infinite canvas design delivery template.\nSupports free layout of titles, text, tags, cards, color swatches, type samples, design pages, and notes.',
+    tags: ['Infinite Canvas', 'Design Delivery', 'Three-Layer Architecture'],
+    contextCards: {
+      coreFeatures: { title: 'Core Features', items: ['Pan & zoom canvas', 'Drag elements freely', 'Undo layout changes', 'Trackpad gesture support'] },
+      techHighlights: { title: 'Technical Highlights', items: ['Single-file HTML delivery', 'No external dependencies', 'Open directly in browser', 'Pointer Events touch compatibility'] },
+      deliveryStandards: { title: 'Delivery Standards', items: ['Row 1 answers three core questions', 'Row 2 shows color & type system', 'Row 3 pages arranged by flow'] },
+    },
+    notes: {
+      designPhilosophy: { tag: 'Design Philosophy', body: 'Pursue a design-board feel, not a table. Elements scatter freely; important things are bigger and more prominent.' },
+      remark: { tag: 'Remark', body: 'This is the template demo scene. When used, the agent fills in project content.' },
+    },
+    typeSamples: {
+      heading: 'Heading',
+      subheading: 'Subheading',
+      bodyText: 'Body text. Design is the process of turning intent into perceivable form.',
+      caption: 'Caption / supplementary text',
+    },
+    pages: {
+      home: { label: 'Home', heading: 'Welcome to the Infinite Canvas', cta: 'Start Exploring' },
+      discover: { label: 'Discover', todayPick: 'Today\'s Picks' },
+      cards: {
+        designSystemIntro: { title: 'Design System Basics', desc: 'Build a complete design language from scratch' },
+        colorTheory: { title: 'Color Theory', desc: 'Understanding oklch and harmonious palettes' },
+        typographyRhythm: { title: 'Typography Rhythm', desc: 'Line height, letter spacing, and breathing room' },
+      },
+      profile: { label: 'Profile', name: 'Designer', role: 'Product Design \u00b7 3 Projects', items: ['My Projects', 'Design Specs', 'Settings'] },
+    },
+    docTitle: '番茄钟 · 设计交付',
+    zoom: { zoomIn: 'Zoom in', zoomOut: 'Zoom out', reset: 'Reset view' },
+    kbdHints: [['Scroll', 'pan'], ['Ctrl / ⌘ + Scroll', 'zoom'], ['Ctrl / ⌘ + Z', 'undo']],
+    sections: { context: '01 PROJECT CONTEXT', designSystem: '02 DESIGN SYSTEM', deliverables: '03 DESIGN DELIVERABLES' },
+    demoTitle: 'Canvas Template',
+    designSystemCards: {
+      colorTitle: 'Color Palette',
+      typographyTitle: 'Typography',
+      componentsTitle: 'Components',
+      swatchNames: ['Accent', 'Surface', 'Raised', 'Text', 'Muted', 'Border'],
+      typeMeta: { h1: 'H1', h2: 'H2', body: 'Body', caption: 'Caption' },
+      componentSamples: { primary: 'Primary Button', secondary: 'Secondary', inputPlaceholder: 'Input placeholder\u2026' },
+    },
+    hello: 'Hello',
+  };
+
+  // Chrome strings live in UI_STRINGS too - applied here so the static HTML
+  // above carries no visible copy at all (machine-checkable invariant).
+  document.title = UI_STRINGS.docTitle;
+  document.getElementById('zoomIn').setAttribute('aria-label', UI_STRINGS.zoom.zoomIn);
+  document.getElementById('zoomOut').setAttribute('aria-label', UI_STRINGS.zoom.zoomOut);
+  document.getElementById('zoomReset').setAttribute('aria-label', UI_STRINGS.zoom.reset);
+  document.getElementById('kbdHint').innerHTML = UI_STRINGS.kbdHints
+    .map(([keys, action]) => `<span><kbd>${keys}</kbd> ${action}</span>`)
+    .join('');
+
+  const viewport = document.getElementById('viewport');
+  const world = document.getElementById('world');
+  const zoomLabel = document.getElementById('zoomLabel');
+  const coordIndicator = document.getElementById('coordIndicator');
+
+  /* ===== canvas state ===== */
+  let panX = 0, panY = 0, zoom = 1;
+  const MIN_ZOOM = 0.05, MAX_ZOOM = 8;
+
+  function updateTransform() {
+    world.style.transform = `translate(${panX}px,${panY}px) scale(${zoom})`;
+    zoomLabel.textContent = Math.round(zoom * 100) + '%';
+    updateGrid();
+  }
+
+  /* ===== dot grid ===== */
+  function updateGrid() {
+    const g = 40 * zoom;
+    const ox = panX % g, oy = panY % g;
+    viewport.style.backgroundImage = `radial-gradient(circle, var(--grid-color) 0.8px, transparent 0.8px)`;
+    viewport.style.backgroundSize = `${g}px ${g}px`;
+    viewport.style.backgroundPosition = `${ox}px ${oy}px`;
+  }
+
+  /* ===== panning ===== */
+  let isPanning = false, panSX, panSY;
+
+  viewport.addEventListener('pointerdown', (e) => {
+    if (e.target === viewport || e.target === world) {
+      isPanning = true;
+      panSX = e.clientX - panX;
+      panSY = e.clientY - panY;
+      viewport.classList.add('panning');
+      viewport.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    }
+  });
+  viewport.addEventListener('pointermove', (e) => {
+    if (!isPanning) return;
+    panX = e.clientX - panSX;
+    panY = e.clientY - panSY;
+    updateTransform();
+  });
+  viewport.addEventListener('pointerup', () => {
+    isPanning = false;
+    viewport.classList.remove('panning');
+  });
+
+  /* ===== wheel: trackpad scroll = pan, pinch/ctrl+scroll = zoom ===== */
+  viewport.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = viewport.getBoundingClientRect();
+
+    if (e.ctrlKey || e.metaKey) {
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const wx = (mx - panX) / zoom, wy = (my - panY) / zoom;
+      const factor = e.deltaY > 0 ? 0.95 : 1.05;
+      zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
+      panX = mx - wx * zoom;
+      panY = my - wy * zoom;
+    } else {
+      const hasX = Math.abs(e.deltaX) > 0.5;
+      if (hasX || Math.abs(e.deltaX) > Math.abs(e.deltaY) * 0.3) {
+        panX -= e.deltaX;
+        panY -= e.deltaY;
+      } else {
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        const wx = (mx - panX) / zoom, wy = (my - panY) / zoom;
+        const factor = e.deltaY > 0 ? 0.95 : 1.05;
+        zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
+        panX = mx - wx * zoom;
+        panY = my - wy * zoom;
+      }
+    }
+    updateTransform();
+  }, { passive: false });
+
+  /* ===== zoom buttons ===== */
+  function zoomAt(factor) {
+    const r = viewport.getBoundingClientRect();
+    const cx = r.width / 2, cy = r.height / 2;
+    const wx = (cx - panX) / zoom, wy = (cy - panY) / zoom;
+    zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
+    panX = cx - wx * zoom;
+    panY = cy - wy * zoom;
+    updateTransform();
+  }
+  document.getElementById('zoomIn').onclick = () => zoomAt(1.25);
+  document.getElementById('zoomOut').onclick = () => zoomAt(0.8);
+  document.getElementById('zoomReset').onclick = () => { zoom = 1; panX = 0; panY = 0; updateTransform(); };
+  document.getElementById('zoomReset').title = UI_STRINGS.zoom.reset;
+
+  /* ===== coord indicator ===== */
+  viewport.addEventListener('pointermove', (e) => {
+    if (isPanning) return;
+    const r = viewport.getBoundingClientRect();
+    coordIndicator.textContent = `${Math.round((e.clientX - r.left - panX) / zoom)}, ${Math.round((e.clientY - r.top - panY) / zoom)}`;
+  });
+
+  /* ===== touch gestures ===== */
+  let lastPinchDist = null, lastPinchCenter = null;
+
+  viewport.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      const t0 = e.touches[0], t1 = e.touches[1];
+      lastPinchDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+      lastPinchCenter = { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 };
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  viewport.addEventListener('touchmove', (e) => {
+    if (e.touches.length !== 2) return;
+    e.preventDefault();
+    const t0 = e.touches[0], t1 = e.touches[1];
+    const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    const center = { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 };
+    if (lastPinchDist > 0) {
+      const r = viewport.getBoundingClientRect();
+      const mx = center.x - r.left, my = center.y - r.top;
+      const wx = (mx - panX) / zoom, wy = (my - panY) / zoom;
+      zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * Math.pow(dist / lastPinchDist, 0.6)));
+      panX = mx - wx * zoom;
+      panY = my - wy * zoom;
+    }
+    if (lastPinchCenter) {
+      panX += center.x - lastPinchCenter.x;
+      panY += center.y - lastPinchCenter.y;
+    }
+    lastPinchDist = dist;
+    lastPinchCenter = center;
+    updateTransform();
+  }, { passive: false });
+
+  viewport.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) { lastPinchDist = null; lastPinchCenter = null; }
+  });
+
+  /* ===== undo ===== */
+  const undoStack = [];
+  function saveUndo() {
+    const s = [];
+    world.querySelectorAll('.canvas-el').forEach(el => {
+      s.push({ id: el.id, left: el.style.left, top: el.style.top });
+    });
+    undoStack.push({ panX, panY, zoom, assets: s });
+    if (undoStack.length > 60) undoStack.shift();
+  }
+  function undo() {
+    if (!undoStack.length) return;
+    const st = undoStack.pop();
+    panX = st.panX; panY = st.panY; zoom = st.zoom;
+    st.assets.forEach(a => {
+      const el = document.getElementById(a.id);
+      if (el) { el.style.left = a.left; el.style.top = a.top; }
+    });
+    updateTransform();
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]')) return;
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
+  });
+
+  /* ===== draggable ===== */
+  function makeDraggable(el) {
+    let dragging = false, sx, sy, ox, oy;
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || (e.target instanceof Element && e.target.closest('button, a, input, textarea, select, [contenteditable]'))) return;
+      dragging = true;
+      el.classList.add('dragging');
+      saveUndo();
+      sx = e.clientX; sy = e.clientY;
+      ox = parseFloat(el.style.left); oy = parseFloat(el.style.top);
+      el.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      el.style.left = (ox + (e.clientX - sx) / zoom) + 'px';
+      el.style.top = (oy + (e.clientY - sy) / zoom) + 'px';
+    });
+    el.addEventListener('pointerup', () => {
+      if (dragging) { dragging = false; el.classList.remove('dragging'); }
+    });
+  }
+
+  /* ===== unique id ===== */
+  let _id = 0;
+  function uid(prefix) { return (prefix || 'el') + '-' + (++_id); }
+
+  /* ===== API: addSection ===== */
+  function addSection(rowY, label) {
+    const parts = label.split(' ');
+    const num = parts[0] || '';
+    const rest = parts.slice(1).join(' ');
+    const el = document.createElement('div');
+    el.className = 'section-header';
+    el.style.left = '60px';
+    el.style.top = rowY + 'px';
+    el.innerHTML = `<span class="section-line"></span><span class="section-num">${num}</span><span class="section-label">${rest}</span>`;
+    world.appendChild(el);
+    return rowY;
+  }
+
+  /* ===== API: addTitle ===== */
+  function addTitle(x, y, text, options = {}) {
+    const el = document.createElement('div');
+    el.className = 'canvas-title';
+    el.id = uid('title');
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.fontSize = (options.fontSize || 48) + 'px';
+    if (options.fontWeight) el.style.fontWeight = options.fontWeight;
+    if (options.color) el.style.color = options.color;
+    if (options.maxWidth) el.style.maxWidth = options.maxWidth + 'px';
+    el.textContent = text;
+    world.appendChild(el);
+    return el;
+  }
+
+  /* ===== API: addText ===== */
+  function addText(x, y, text, options = {}) {
+    const el = document.createElement('div');
+    el.className = 'canvas-text canvas-el';
+    el.id = uid('text');
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.fontSize = (options.fontSize || 14) + 'px';
+    if (options.color) el.style.color = options.color;
+    if (options.maxWidth) el.style.maxWidth = options.maxWidth + 'px';
+    el.textContent = text;
+    world.appendChild(el);
+    makeDraggable(el);
+    return el;
+  }
+
+  /* ===== API: addTag ===== */
+  function addTag(x, y, label, options = {}) {
+    const el = document.createElement('div');
+    el.className = 'canvas-el';
+    el.id = uid('tag');
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    const dotColor = options.color || 'var(--accent)';
+    el.innerHTML = `<div class="canvas-tag"><span class="tag-dot" style="background:${dotColor}"></span>${label}</div>`;
+    world.appendChild(el);
+    makeDraggable(el);
+    return el;
+  }
+
+  /* ===== API: addContextCard ===== */
+  function addContextCard(x, y, w, h, title, content) {
+    const el = document.createElement('div');
+    el.className = 'canvas-el';
+    el.id = uid('ctx');
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.width = w + 'px';
+    if (h) el.style.height = h + 'px';
+    el.innerHTML = `<div class="context-card" style="width:100%;${h ? 'height:100%' : ''}">
+      <div class="card-head"><div class="head-indicator"></div><h3>${title}</h3></div>
+      <div class="card-content">${content}</div>
+    </div>`;
+    world.appendChild(el);
+    makeDraggable(el);
+    return el;
+  }
+
+  /* ===== API: addDesignSystemCard ===== */
+  function addDesignSystemCard(x, y, w, h, type, data) {
+    const el = document.createElement('div');
+    el.className = 'canvas-el';
+    el.id = uid('ds');
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.width = w + 'px';
+    if (h) el.style.height = h + 'px';
+
+    let body = '';
+    if (type === 'color' && Array.isArray(data.colors)) {
+      body = `<div class="color-grid">${data.colors.map(c =>
+        `<div class="color-chip" style="background:${c.hex}"><span class="chip-label">${c.name || c.hex}</span></div>`
+      ).join('')}</div>`;
+    } else if (type === 'typography' && Array.isArray(data.samples)) {
+      body = `<div class="type-stack">${data.samples.map(s =>
+        `<div class="type-row"><span class="type-label">${s.label}</span><span class="type-sample" style="font-size:${s.size}px;font-weight:${s.weight || 400}">${s.text || 'Aa'}</span></div>`
+      ).join('')}</div>`;
+    } else if (typeof data.html === 'string') {
+      body = data.html;
+    }
+
+    el.innerHTML = `<div class="ds-card" style="width:100%;${h ? 'height:100%' : ''}">
+      <div class="ds-head">${data.title || type}</div>
+      <div class="ds-body">${body}</div>
+    </div>`;
+    world.appendChild(el);
+    makeDraggable(el);
+    return el;
+  }
+
+  /* ===== API: addColorSwatch ===== */
+  function addColorSwatch(x, y, colors) {
+    const el = document.createElement('div');
+    el.className = 'canvas-el';
+    el.id = uid('swatch');
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.innerHTML = `<div class="color-swatch-group">${colors.map(c =>
+      `<div class="swatch-item">
+        <div class="swatch-circle" style="background:${c.hex}"></div>
+        <div class="swatch-name">${c.name || ''}</div>
+        <div class="swatch-hex">${c.hex}</div>
+      </div>`
+    ).join('')}</div>`;
+    world.appendChild(el);
+    makeDraggable(el);
+    return el;
+  }
+
+  /* ===== API: addTypeSample ===== */
+  function addTypeSample(x, y, samples) {
+    const el = document.createElement('div');
+    el.className = 'canvas-el';
+    el.id = uid('typesample');
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.innerHTML = `<div class="type-sample-group">${samples.map(s =>
+      `<div class="type-sample-row">
+        <span class="type-sample-meta">${s.label}<br>${s.size}px</span>
+        <span class="type-sample-text" style="font-size:${s.size}px;font-weight:${s.weight || 400};${s.font ? 'font-family:' + s.font : ''}">${s.text || 'The quick brown fox'}</span>
+      </div>`
+    ).join('')}</div>`;
+    world.appendChild(el);
+    makeDraggable(el);
+    return el;
+  }
+
+  /* ===== API: addPage ===== */
+  let _pageNum = 0;
+  function addPage(x, y, w, h, label, htmlContent) {
+    _pageNum++;
+    const el = document.createElement('div');
+    el.className = 'canvas-el';
+    el.id = uid('page');
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.width = w + 'px';
+    el.style.height = (h + 40) + 'px';
+    el.innerHTML = `<div class="design-page" style="width:${w}px;height:${h}px;">
+      <div class="page-content">${htmlContent}</div>
+    </div>
+    <div class="page-label"><span class="label-num">${String(_pageNum).padStart(2,'0')}</span>${label}</div>`;
+    world.appendChild(el);
+    makeDraggable(el);
+    return el;
+  }
+
+  /* ===== API: addNote ===== */
+  function addNote(x, y, tag, text) {
+    const el = document.createElement('div');
+    el.className = 'canvas-el';
+    el.id = uid('note');
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.innerHTML = `<div class="canvas-note">
+      <div class="note-tag">${tag}</div>
+      <div class="note-body">${text}</div>
+    </div>`;
+    world.appendChild(el);
+    makeDraggable(el);
+    return el;
+  }
+
+  /* ===== API: addDiagram ===== */
+  function addDiagram(x, y, w, h, htmlContent) {
+    const el = document.createElement('div');
+    el.className = 'canvas-el';
+    el.id = uid('diagram');
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.width = w + 'px';
+    el.style.height = h + 'px';
+    el.innerHTML = `<div class="canvas-diagram" style="width:100%;height:100%;">
+      <div class="diagram-content">${htmlContent}</div>
+    </div>`;
+    world.appendChild(el);
+    makeDraggable(el);
+    return el;
+  }
+
+  /* ===== Layout helpers (overlap prevention) ===== */
+  function below(el, gap) { if (gap === undefined) gap = 20; return parseFloat(el.style.top) + el.offsetHeight + gap; }
+  function rightOf(el, gap) { if (gap === undefined) gap = 20; return parseFloat(el.style.left) + el.offsetWidth + gap; }
+  function maxY(els, gap) { if (gap === undefined) gap = 20; return Math.max(...els.map(e => parseFloat(e.style.top) + e.offsetHeight)) + gap; }
+  function maxX(els, gap) { if (gap === undefined) gap = 20; return Math.max(...els.map(e => parseFloat(e.style.left) + e.offsetWidth)) + gap; }
+
+  /* ===== expose API ===== */
+  window.canvas = { addSection, addTitle, addText, addTag, addContextCard, addDesignSystemCard, addColorSwatch, addTypeSample, addPage, addNote, addDiagram, below, rightOf, maxY, maxX };
+
+  /* ===== demo scene ===== */
+  /* Layout rules:
+     - Vertical positioning uses below(el, gap) based on actual rendered height of the element above, no hardcoded Y
+     - Horizontal positioning uses rightOf(el, gap) or fixed X (fixed values are fine when element widths are known)
+     - Cross-row alignment uses maxY([all elements in that row], 80) to get the next row's starting Y
+     - Always save the return value of each add* call to a variable for later element references
+  */
+  const PAGE_TIMER = '\n<style>\n  .pg{position:relative;width:100%;height:100%;background:var(--pg-bg);color:var(--pg-text);\n      font-family:"PingFang SC","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;\n      display:flex;flex-direction:column;overflow:hidden;}\n  .pg *{box-sizing:border-box;margin:0;padding:0}\n  .pg-top{flex:none;display:flex;align-items:center;justify-content:space-between;\n      height:52px;padding:0 20px;border-bottom:1px solid var(--pg-line)}\n  .pg-brand{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600}\n  .pg-body{flex:1;min-height:0;display:flex;flex-direction:column;padding:0 20px}\n  .pg-num{font-family:"Bahnschrift","Segoe UI Variable Display",sans-serif;font-variant-numeric:tabular-nums}\n  .pg{--pg-bg:#0D0C0A;--pg-surface:#14120F;--pg-raised:#221F1A;--pg-line:rgba(242,237,230,.07);--pg-line-2:rgba(242,237,230,.13);--pg-line-3:rgba(242,237,230,.22);--pg-text:#F2EDE6;--pg-text-2:#A79C8F;--pg-text-3:#8A8078;--pg-accent:#E2552F;--pg-accent-ink:#170904;--pg-chart:#4A443C}\n</style>\n\n<div class="pg">\n  <div class="pg-top">\n    <div class="pg-brand">\n      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E2552F" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">\n        <path d="M12 21c4.4 0 7.5-3 7.5-7.1 0-4-3.1-6.9-7.5-6.9s-7.5 2.9-7.5 6.9C4.5 18 7.6 21 12 21Z"/>\n        <path d="M12 7V4.2"/><path d="M12 5.4c-1.3-1-2.9-1.3-4.3-.8M12 5.4c1.3-1 2.9-1.3 4.3-.8"/>\n      </svg>\n      番茄钟\n    </div>\n    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(242,237,230,.42)" stroke-width="1.6" stroke-linecap="round">\n      <circle cx="12" cy="12" r="2.8"/>\n      <path d="M12 3.2v2.1M12 18.7v2.1M4.6 7.8l1.8 1.1M17.6 15.1l1.8 1.1M4.6 16.2l1.8-1.1M17.6 8.9l1.8-1.1"/>\n    </svg>\n  </div>\n\n  <div class="pg-body">\n    <div style="margin-top:20px;display:flex;align-items:center;gap:12px;padding:12px 16px;\n                border:1px solid var(--pg-line);border-radius:6px;background:var(--pg-surface);">\n      <div style="flex:1;min-width:0">\n        <div style="font-size:10.5px;font-weight:600;letter-spacing:.16em;color:var(--pg-text-3);text-transform:uppercase">本轮专注</div>\n        <div style="margin-top:2px;font-size:15px;font-weight:600">写完方案第 2 节</div>\n      </div>\n      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(242,237,230,.42)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">\n        <path d="M9.4 5.6 16 12l-6.6 6.4"/>\n      </svg>\n    </div>\n\n    <div style="position:relative;flex:1;display:grid;place-items:center;margin-top:16px">\n      <div style="position:relative;width:300px;height:300px">\n        <svg viewBox="0 0 300 300" style="width:100%;height:100%;display:block">\n          <line x1="150.0" y1="9.0" x2="150.0" y2="22.0" stroke="rgba(242,237,230,.22)" stroke-width="2"/><line x1="164.7" y1="9.8" x2="164.0" y2="16.7" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="179.3" y1="12.1" x2="177.9" y2="18.9" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="193.6" y1="15.9" x2="191.4" y2="22.6" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="207.3" y1="21.2" x2="204.5" y2="27.6" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="220.5" y1="27.9" x2="214.0" y2="39.1" stroke="rgba(242,237,230,.22)" stroke-width="2"/><line x1="232.9" y1="35.9" x2="228.8" y2="41.6" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="244.3" y1="45.2" x2="239.7" y2="50.4" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="254.8" y1="55.7" x2="249.6" y2="60.3" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="264.1" y1="67.1" x2="258.4" y2="71.2" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="272.1" y1="79.5" x2="260.9" y2="86.0" stroke="rgba(242,237,230,.22)" stroke-width="2"/><line x1="278.8" y1="92.7" x2="272.4" y2="95.5" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="284.1" y1="106.4" x2="277.4" y2="108.6" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="287.9" y1="120.7" x2="281.1" y2="122.1" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="290.2" y1="135.3" x2="283.3" y2="136.0" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="291.0" y1="150.0" x2="278.0" y2="150.0" stroke="rgba(242,237,230,.22)" stroke-width="2"/><line x1="290.2" y1="164.7" x2="283.3" y2="164.0" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="287.9" y1="179.3" x2="281.1" y2="177.9" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="284.1" y1="193.6" x2="277.4" y2="191.4" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="278.8" y1="207.3" x2="272.4" y2="204.5" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="272.1" y1="220.5" x2="260.9" y2="214.0" stroke="rgba(242,237,230,.22)" stroke-width="2"/><line x1="264.1" y1="232.9" x2="258.4" y2="228.8" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="254.8" y1="244.3" x2="249.6" y2="239.7" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="244.3" y1="254.8" x2="239.7" y2="249.6" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="232.9" y1="264.1" x2="228.8" y2="258.4" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="220.5" y1="272.1" x2="214.0" y2="260.9" stroke="rgba(242,237,230,.22)" stroke-width="2"/><line x1="207.3" y1="278.8" x2="204.5" y2="272.4" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="193.6" y1="284.1" x2="191.4" y2="277.4" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="179.3" y1="287.9" x2="177.9" y2="281.1" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="164.7" y1="290.2" x2="164.0" y2="283.3" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="150.0" y1="291.0" x2="150.0" y2="278.0" stroke="rgba(242,237,230,.22)" stroke-width="2"/><line x1="135.3" y1="290.2" x2="136.0" y2="283.3" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="120.7" y1="287.9" x2="122.1" y2="281.1" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="106.4" y1="284.1" x2="108.6" y2="277.4" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="92.7" y1="278.8" x2="95.5" y2="272.4" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="79.5" y1="272.1" x2="86.0" y2="260.9" stroke="rgba(242,237,230,.22)" stroke-width="2"/><line x1="67.1" y1="264.1" x2="71.2" y2="258.4" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="55.7" y1="254.8" x2="60.3" y2="249.6" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="45.2" y1="244.3" x2="50.4" y2="239.7" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="35.9" y1="232.9" x2="41.6" y2="228.8" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="27.9" y1="220.5" x2="39.1" y2="214.0" stroke="rgba(242,237,230,.22)" stroke-width="2"/><line x1="21.2" y1="207.3" x2="27.6" y2="204.5" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="15.9" y1="193.6" x2="22.6" y2="191.4" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="12.1" y1="179.3" x2="18.9" y2="177.9" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="9.8" y1="164.7" x2="16.7" y2="164.0" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="9.0" y1="150.0" x2="22.0" y2="150.0" stroke="rgba(242,237,230,.22)" stroke-width="2"/><line x1="9.8" y1="135.3" x2="16.7" y2="136.0" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="12.1" y1="120.7" x2="18.9" y2="122.1" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="15.9" y1="106.4" x2="22.6" y2="108.6" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="21.2" y1="92.7" x2="27.6" y2="95.5" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="27.9" y1="79.5" x2="39.1" y2="86.0" stroke="rgba(242,237,230,.22)" stroke-width="2"/><line x1="35.9" y1="67.1" x2="41.6" y2="71.2" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="45.2" y1="55.7" x2="50.4" y2="60.3" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="55.7" y1="45.2" x2="60.3" y2="50.4" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="67.1" y1="35.9" x2="71.2" y2="41.6" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="79.5" y1="27.9" x2="86.0" y2="39.1" stroke="rgba(242,237,230,.22)" stroke-width="2"/><line x1="92.7" y1="21.2" x2="95.5" y2="27.6" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="106.4" y1="15.9" x2="108.6" y2="22.6" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="120.7" y1="12.1" x2="122.1" y2="18.9" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/><line x1="135.3" y1="9.8" x2="136.0" y2="16.7" stroke="rgba(242,237,230,.13)" stroke-width="1.5"/>\n          <circle cx="150" cy="150" r="118" fill="none" stroke="rgba(242,237,230,.07)" stroke-width="2.5"/>\n          <circle cx="150" cy="150" r="118" fill="none" stroke="#E2552F" stroke-width="2.5"\n                  stroke-linecap="round" stroke-dasharray="741.42" stroke-dashoffset="690"\n                  transform="rotate(-90 150 150)"/>\n          <g transform="translate(159.5 40.5)">\n            <path d="M0 -7 L3.4 -1.2 L0 4.6 L-3.4 -1.2 Z" fill="#E2552F"/>\n          </g>\n        </svg>\n        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">\n          <div style="font-size:11px;font-weight:600;letter-spacing:.2em;color:var(--pg-accent);text-indent:.2em">专注</div>\n          <div class="pg-num" style="margin-top:8px;font-size:68px;font-weight:300;line-height:1;letter-spacing:-.02em">25:00</div>\n          <div style="margin-top:12px;font-size:12px;color:var(--pg-text-2)">第 1 个番茄</div>\n        </div>\n      </div>\n    </div>\n\n    <div style="display:flex;align-items:center;gap:12px;margin-top:12px">\n      <div style="display:flex;gap:5px"><span style="width:22px;height:3px;background:var(--pg-accent)"></span><span style="width:22px;height:3px;background:var(--pg-line-2)"></span><span style="width:22px;height:3px;background:var(--pg-line-2)"></span><span style="width:22px;height:3px;background:var(--pg-line-2)"></span></div>\n      <span style="font-size:12px;color:var(--pg-text-2)">本轮 1 / 4</span>\n    </div>\n\n    <div style="display:grid;grid-template-columns:48px 68px 48px;justify-content:center;align-items:center;gap:32px;margin-top:24px">\n      <div style="width:48px;height:48px;border-radius:999px;border:1px solid var(--pg-line);display:grid;place-items:center">\n        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(242,237,230,.32)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">\n          <path d="M3.6 11.2a8.4 8.4 0 1 0 3-6.4"/><path d="M3.6 4.6v5.1h5.1"/>\n        </svg>\n      </div>\n      <div style="width:68px;height:68px;border-radius:999px;background:var(--pg-accent);display:grid;place-items:center">\n        <svg width="26" height="26" viewBox="0 0 24 24" fill="#170904"><path d="M8.4 5.6c0-.85.93-1.36 1.65-.9l8.2 5.4a1.06 1.06 0 0 1 0 1.8l-8.2 5.4c-.72.46-1.65-.05-1.65-.9Z"/></svg>\n      </div>\n      <div style="width:48px;height:48px;border-radius:999px;border:1px solid var(--pg-line);display:grid;place-items:center">\n        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(242,237,230,.32)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">\n          <path d="M6 5.6c0-.85.93-1.36 1.65-.9l7.3 5.2a1.06 1.06 0 0 1 0 1.8l-7.3 5.2c-.72.46-1.65-.05-1.65-.9Z"/><path d="M17.6 5.2v13.6"/>\n        </svg>\n      </div>\n    </div>\n\n    <div style="display:flex;align-items:center;gap:16px;margin-top:24px;padding-top:16px;\n                border-top:1px solid var(--pg-line);font-size:12px;color:var(--pg-text-3)">\n      <span>今日 <b style="color:var(--pg-text)">1</b> 个番茄</span>\n      <span style="width:1px;height:11px;background:var(--pg-line-2)"></span>\n      <span>专注 <b style="color:var(--pg-text)">25</b> 分钟</span>\n      <span style="width:1px;height:11px;background:var(--pg-line-2)"></span>\n      <span>连续 <b style="color:var(--pg-text)">4</b> 天</span>\n    </div>\n  </div>\n\n  <div style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--pg-line)">\n    <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:12px 0;font-size:11px;color:var(--pg-text);position:relative">\n      <span style="position:absolute;top:-1px;left:50%;transform:translateX(-50%);width:24px;height:2px;background:var(--pg-accent)"></span>\n      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#E2552F" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">\n        <circle cx="12" cy="13.4" r="7.4"/><path d="M12 9.6v3.8l2.3 1.6"/><path d="M9.3 2.8h5.4"/>\n      </svg>计时\n    </div>\n    <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:12px 0;font-size:11px;color:var(--pg-text-3)">\n      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">\n        <path d="M4.5 7.2 6 8.7l2.4-2.7M4.5 12.4 6 13.9l2.4-2.7M4.5 17.6 6 19.1l2.4-2.7"/><path d="M11.6 7.8h8M11.6 13h8M11.6 18.2h5.4"/>\n      </svg>任务\n    </div>\n    <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:12px 0;font-size:11px;color:var(--pg-text-3)">\n      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">\n        <path d="M3.4 20.2h17.2"/><path d="M7 20.2v-6.4M12 20.2V8M17 20.2v-4.2"/>\n      </svg>记录\n    </div>\n  </div>\n</div>\n';
+  const PAGE_TASKS = '\n<style>\n  .pg{position:relative;width:100%;height:100%;background:var(--pg-bg);color:var(--pg-text);\n      font-family:"PingFang SC","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;\n      display:flex;flex-direction:column;overflow:hidden;}\n  .pg *{box-sizing:border-box;margin:0;padding:0}\n  .pg-top{flex:none;display:flex;align-items:center;justify-content:space-between;\n      height:52px;padding:0 20px;border-bottom:1px solid var(--pg-line)}\n  .pg-brand{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600}\n  .pg-body{flex:1;min-height:0;display:flex;flex-direction:column;padding:0 20px}\n  .pg-num{font-family:"Bahnschrift","Segoe UI Variable Display",sans-serif;font-variant-numeric:tabular-nums}\n  .pg{--pg-bg:#0D0C0A;--pg-surface:#14120F;--pg-raised:#221F1A;--pg-line:rgba(242,237,230,.07);--pg-line-2:rgba(242,237,230,.13);--pg-line-3:rgba(242,237,230,.22);--pg-text:#F2EDE6;--pg-text-2:#A79C8F;--pg-text-3:#8A8078;--pg-accent:#E2552F;--pg-accent-ink:#170904;--pg-chart:#4A443C}\n</style>\n\n<div class="pg">\n  <div class="pg-top">\n    <div class="pg-brand">\n      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E2552F" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">\n        <path d="M12 21c4.4 0 7.5-3 7.5-7.1 0-4-3.1-6.9-7.5-6.9s-7.5 2.9-7.5 6.9C4.5 18 7.6 21 12 21Z"/>\n        <path d="M12 7V4.2"/><path d="M12 5.4c-1.3-1-2.9-1.3-4.3-.8M12 5.4c1.3-1 2.9-1.3 4.3-.8"/>\n      </svg>\n      番茄钟\n    </div>\n    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(242,237,230,.42)" stroke-width="1.6" stroke-linecap="round">\n      <circle cx="12" cy="12" r="2.8"/>\n      <path d="M12 3.2v2.1M12 18.7v2.1M4.6 7.8l1.8 1.1M17.6 15.1l1.8 1.1M4.6 16.2l1.8-1.1M17.6 8.9l1.8-1.1"/>\n    </svg>\n  </div>\n\n  <div class="pg-body" style="padding-bottom:0">\n    <div style="display:flex;align-items:center;justify-content:space-between;padding:24px 0 20px">\n      <h1 style="font-size:24px;font-weight:600;letter-spacing:-.01em">任务</h1>\n      <span style="display:inline-flex;align-items:center;gap:6px;padding:7px 11px 7px 9px;\n                   font-size:13px;font-weight:600;border:1px solid var(--pg-line-2);border-radius:6px">\n        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#E2552F" stroke-width="1.9" stroke-linecap="round"><path d="M12 5.4v13.2M5.4 12h13.2"/></svg>\n        新建\n      </span>\n    </div>\n\n    <div style="display:flex;justify-content:space-between;padding-bottom:8px;\n                font-size:10.5px;font-weight:600;letter-spacing:.16em;color:var(--pg-text-3);text-transform:uppercase">\n      <span>进行中</span><span>3</span>\n    </div>\n    \n    <div style="display:flex;align-items:stretch;border-bottom:1px solid var(--pg-line);padding:13px 0">\n      <div style="flex:1;display:flex;align-items:center;gap:12px;min-width:0">\n        <span style="flex:none;width:17px;height:17px;border:1px solid var(--pg-line-3);border-radius:2px"></span>\n        <span style="flex:1;min-width:0">\n          <span style="display:block;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">写完方案第 2 节</span>\n          <span style="display:flex;align-items:center;gap:8px;margin-top:3px;font-size:11.5px;color:var(--pg-text-3)">\n            <span style="display:inline-flex;gap:3px"><i style="display:block;width:2px;height:9px;background:var(--pg-accent)"></i><i style="display:block;width:2px;height:9px;background:var(--pg-accent)"></i><i style="display:block;width:2px;height:9px;background:var(--pg-line-3)"></i><i style="display:block;width:2px;height:9px;background:var(--pg-line-3)"></i></span>\n            2 / 4 个番茄\n          </span>\n        </span>\n      </div>\n      <span style="align-self:center;padding:3px 7px;font-size:10px;font-weight:600;letter-spacing:.1em;color:var(--pg-accent);border:1px solid currentColor;border-radius:2px">当前</span>\n    </div>\n    <div style="display:flex;align-items:stretch;border-bottom:1px solid var(--pg-line);padding:13px 0">\n      <div style="flex:1;display:flex;align-items:center;gap:12px;min-width:0">\n        <span style="flex:none;width:17px;height:17px;border:1px solid var(--pg-line-3);border-radius:2px"></span>\n        <span style="flex:1;min-width:0">\n          <span style="display:block;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">整理上周会议记录</span>\n          <span style="display:flex;align-items:center;gap:8px;margin-top:3px;font-size:11.5px;color:var(--pg-text-3)">\n            <span style="display:inline-flex;gap:3px"><i style="display:block;width:2px;height:9px;background:var(--pg-accent)"></i><i style="display:block;width:2px;height:9px;background:var(--pg-line-3)"></i></span>\n            1 / 2 个番茄\n          </span>\n        </span>\n      </div>\n      \n    </div>\n    <div style="display:flex;align-items:stretch;border-bottom:1px solid var(--pg-line);padding:13px 0">\n      <div style="flex:1;display:flex;align-items:center;gap:12px;min-width:0">\n        <span style="flex:none;width:17px;height:17px;border:1px solid var(--pg-line-3);border-radius:2px"></span>\n        <span style="flex:1;min-width:0">\n          <span style="display:block;font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">回复设计评审意见</span>\n          <span style="display:flex;align-items:center;gap:8px;margin-top:3px;font-size:11.5px;color:var(--pg-text-3)">\n            <span style="display:inline-flex;gap:3px"><i style="display:block;width:2px;height:9px;background:var(--pg-line-3)"></i><i style="display:block;width:2px;height:9px;background:var(--pg-line-3)"></i><i style="display:block;width:2px;height:9px;background:var(--pg-line-3)"></i></span>\n            0 / 3 个番茄\n          </span>\n        </span>\n      </div>\n      \n    </div>\n\n    <div style="display:flex;justify-content:space-between;padding:28px 0 8px;\n                font-size:10.5px;font-weight:600;letter-spacing:.16em;color:var(--pg-text-3);text-transform:uppercase">\n      <span>已完成</span><span>2</span>\n    </div>\n    \n    <div style="display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--pg-line);padding:13px 0">\n      <span style="flex:none;width:17px;height:17px;background:var(--pg-accent);border-radius:2px;display:grid;place-items:center">\n        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#170904" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 9.6 17 19 7.4"/></svg>\n      </span>\n      <span style="flex:1;min-width:0">\n        <span style="display:block;font-size:14.5px;font-weight:500;color:var(--pg-text-3);text-decoration:line-through">备份项目资料</span>\n        <span style="display:flex;align-items:center;gap:8px;margin-top:3px;font-size:11.5px;color:var(--pg-text-3)">\n          <span style="display:inline-flex;gap:3px"><i style="display:block;width:2px;height:9px;background:#8A8078"></i><i style="display:block;width:2px;height:9px;background:#8A8078"></i></span>\n          2 / 2 个番茄\n        </span>\n      </span>\n    </div>\n    <div style="display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--pg-line);padding:13px 0">\n      <span style="flex:none;width:17px;height:17px;background:var(--pg-accent);border-radius:2px;display:grid;place-items:center">\n        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#170904" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 9.6 17 19 7.4"/></svg>\n      </span>\n      <span style="flex:1;min-width:0">\n        <span style="display:block;font-size:14.5px;font-weight:500;color:var(--pg-text-3);text-decoration:line-through">更新需求文档目录</span>\n        <span style="display:flex;align-items:center;gap:8px;margin-top:3px;font-size:11.5px;color:var(--pg-text-3)">\n          <span style="display:inline-flex;gap:3px"><i style="display:block;width:2px;height:9px;background:#8A8078"></i></span>\n          1 / 1 个番茄\n        </span>\n      </span>\n    </div>\n  </div>\n\n  <div style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--pg-line)">\n    <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:12px 0;font-size:11px;color:var(--pg-text-3)">\n      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">\n        <circle cx="12" cy="13.4" r="7.4"/><path d="M12 9.6v3.8l2.3 1.6"/><path d="M9.3 2.8h5.4"/>\n      </svg>计时\n    </div>\n    <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:12px 0;font-size:11px;color:var(--pg-text);position:relative">\n      <span style="position:absolute;top:-1px;left:50%;transform:translateX(-50%);width:24px;height:2px;background:var(--pg-accent)"></span>\n      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#E2552F" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">\n        <path d="M4.5 7.2 6 8.7l2.4-2.7M4.5 12.4 6 13.9l2.4-2.7M4.5 17.6 6 19.1l2.4-2.7"/><path d="M11.6 7.8h8M11.6 13h8M11.6 18.2h5.4"/>\n      </svg>任务\n    </div>\n    <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:12px 0;font-size:11px;color:var(--pg-text-3)">\n      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">\n        <path d="M3.4 20.2h17.2"/><path d="M7 20.2v-6.4M12 20.2V8M17 20.2v-4.2"/>\n      </svg>记录\n    </div>\n  </div>\n</div>\n';
+  const PAGE_STATS = '\n<style>\n  .pg{position:relative;width:100%;height:100%;background:var(--pg-bg);color:var(--pg-text);\n      font-family:"PingFang SC","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;\n      display:flex;flex-direction:column;overflow:hidden;}\n  .pg *{box-sizing:border-box;margin:0;padding:0}\n  .pg-top{flex:none;display:flex;align-items:center;justify-content:space-between;\n      height:52px;padding:0 20px;border-bottom:1px solid var(--pg-line)}\n  .pg-brand{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600}\n  .pg-body{flex:1;min-height:0;display:flex;flex-direction:column;padding:0 20px}\n  .pg-num{font-family:"Bahnschrift","Segoe UI Variable Display",sans-serif;font-variant-numeric:tabular-nums}\n  .pg{--pg-bg:#0D0C0A;--pg-surface:#14120F;--pg-raised:#221F1A;--pg-line:rgba(242,237,230,.07);--pg-line-2:rgba(242,237,230,.13);--pg-line-3:rgba(242,237,230,.22);--pg-text:#F2EDE6;--pg-text-2:#A79C8F;--pg-text-3:#8A8078;--pg-accent:#E2552F;--pg-accent-ink:#170904;--pg-chart:#4A443C}\n</style>\n\n<div class="pg">\n  <div class="pg-top">\n    <div class="pg-brand">\n      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E2552F" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">\n        <path d="M12 21c4.4 0 7.5-3 7.5-7.1 0-4-3.1-6.9-7.5-6.9s-7.5 2.9-7.5 6.9C4.5 18 7.6 21 12 21Z"/>\n        <path d="M12 7V4.2"/><path d="M12 5.4c-1.3-1-2.9-1.3-4.3-.8M12 5.4c1.3-1 2.9-1.3 4.3-.8"/>\n      </svg>\n      番茄钟\n    </div>\n    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(242,237,230,.42)" stroke-width="1.6" stroke-linecap="round">\n      <circle cx="12" cy="12" r="2.8"/>\n      <path d="M12 3.2v2.1M12 18.7v2.1M4.6 7.8l1.8 1.1M17.6 15.1l1.8 1.1M4.6 16.2l1.8-1.1M17.6 8.9l1.8-1.1"/>\n    </svg>\n  </div>\n\n  <div class="pg-body" style="padding-bottom:0">\n    <div style="display:flex;align-items:center;justify-content:space-between;padding:24px 0 20px">\n      <h1 style="font-size:24px;font-weight:600;letter-spacing:-.01em">记录</h1>\n      <span style="padding:3px 7px;font-size:10.5px;color:var(--pg-text-3);border:1px dashed rgba(242,237,230,.13);border-radius:2px">示例数据</span>\n    </div>\n\n    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--pg-line);\n                border-top:1px solid var(--pg-line);border-bottom:1px solid var(--pg-line)">\n      <div style="background:var(--pg-bg);padding:16px 0 16px 4px">\n        <b class="pg-num" style="display:block;font-size:30px;font-weight:400;line-height:1.05">1</b>\n        <span style="display:block;margin-top:5px;font-size:11.5px;color:var(--pg-text-3)">今日番茄</span>\n      </div>\n      <div style="background:var(--pg-bg);padding:16px 0 16px 4px">\n        <b class="pg-num" style="display:block;font-size:30px;font-weight:400;line-height:1.05">25</b>\n        <span style="display:block;margin-top:5px;font-size:11.5px;color:var(--pg-text-3)">今日分钟</span>\n      </div>\n      <div style="background:var(--pg-bg);padding:16px 0 16px 4px">\n        <b class="pg-num" style="display:block;font-size:30px;font-weight:400;line-height:1.05">50%</b>\n        <span style="display:block;margin-top:5px;font-size:11.5px;color:var(--pg-text-3)">计划完成</span>\n      </div>\n    </div>\n\n    <div style="display:flex;align-items:baseline;justify-content:space-between;padding:28px 0 16px">\n      <span style="font-size:13px;font-weight:600">最近七天</span>\n      <span style="font-size:11.5px;color:var(--pg-text-3)">21 个番茄</span>\n    </div>\n    <svg viewBox="0 0 320 132" style="width:100%;height:132px;display:block"><line x1="0" y1="110" x2="320" y2="110" stroke="rgba(242,237,230,.13)" stroke-width="1"/><rect x="10.9" y="62.0" width="24" height="48.0" rx="1" fill="#4A443C"/><text x="22.9" y="56.0" fill="#A79C8F" font-size="9.5" text-anchor="middle" font-family="Bahnschrift,sans-serif">3</text><text x="22.9" y="126" fill="#8A8078" font-size="10" text-anchor="middle" font-weight="400">周四</text><rect x="56.6" y="30.0" width="24" height="80.0" rx="1" fill="#4A443C"/><text x="68.6" y="24.0" fill="#A79C8F" font-size="9.5" text-anchor="middle" font-family="Bahnschrift,sans-serif">5</text><text x="68.6" y="126" fill="#8A8078" font-size="10" text-anchor="middle" font-weight="400">周五</text><rect x="102.3" y="78.0" width="24" height="32.0" rx="1" fill="#4A443C"/><text x="114.3" y="72.0" fill="#A79C8F" font-size="9.5" text-anchor="middle" font-family="Bahnschrift,sans-serif">2</text><text x="114.3" y="126" fill="#8A8078" font-size="10" text-anchor="middle" font-weight="400">周六</text><text x="160.0" y="126" fill="#8A8078" font-size="10" text-anchor="middle" font-weight="400">周日</text><rect x="193.7" y="14.0" width="24" height="96.0" rx="1" fill="#4A443C"/><text x="205.7" y="9.0" fill="#A79C8F" font-size="9.5" text-anchor="middle" font-family="Bahnschrift,sans-serif">6</text><text x="205.7" y="126" fill="#8A8078" font-size="10" text-anchor="middle" font-weight="400">周一</text><rect x="239.4" y="46.0" width="24" height="64.0" rx="1" fill="#4A443C"/><text x="251.4" y="40.0" fill="#A79C8F" font-size="9.5" text-anchor="middle" font-family="Bahnschrift,sans-serif">4</text><text x="251.4" y="126" fill="#8A8078" font-size="10" text-anchor="middle" font-weight="400">周二</text><rect x="285.1" y="94.0" width="24" height="16.0" rx="1" fill="#E2552F"/><text x="297.1" y="88.0" fill="#A79C8F" font-size="9.5" text-anchor="middle" font-family="Bahnschrift,sans-serif">1</text><text x="297.1" y="126" fill="#F2EDE6" font-size="10" text-anchor="middle" font-weight="600">今天</text></svg>\n\n    <div style="display:flex;align-items:baseline;justify-content:space-between;padding:28px 0 16px">\n      <span style="font-size:13px;font-weight:600">连续专注</span>\n    </div>\n    <div style="display:flex;align-items:center;gap:16px;padding:20px 0 16px;border-top:1px solid var(--pg-line)">\n      <div style="flex:none;display:flex;align-items:baseline;gap:8px">\n        <span class="pg-num" style="font-size:26px;font-weight:400;line-height:1">4</span>\n        <span style="font-size:12px;color:var(--pg-text-3)">天</span>\n      </div>\n      <span style="font-size:12px;color:var(--pg-text-3);line-height:1.4">连续达成<br>近 14 天</span>\n      <div style="flex:1;display:flex;gap:3px;justify-content:flex-end;align-items:flex-end"><i style="flex:1;max-width:8px;height:18px;background:var(--pg-line-2);border-radius:1px"></i><i style="flex:1;max-width:8px;height:18px;background:var(--pg-line-2);border-radius:1px"></i><i style="flex:1;max-width:8px;height:18px;background:var(--pg-line-2);border-radius:1px"></i><i style="flex:1;max-width:8px;height:18px;background:var(--pg-line-2);border-radius:1px"></i><i style="flex:1;max-width:8px;height:18px;background:var(--pg-line-2);border-radius:1px"></i><i style="flex:1;max-width:8px;height:18px;background:var(--pg-line-2);border-radius:1px"></i><i style="flex:1;max-width:8px;height:18px;background:var(--pg-line-2);border-radius:1px"></i><i style="flex:1;max-width:8px;height:18px;background:var(--pg-line-2);border-radius:1px"></i><i style="flex:1;max-width:8px;height:18px;background:var(--pg-line-2);border-radius:1px"></i><i style="flex:1;max-width:8px;height:18px;background:var(--pg-line-2);border-radius:1px"></i><i style="flex:1;max-width:8px;height:18px;background:var(--pg-accent);border-radius:1px"></i><i style="flex:1;max-width:8px;height:18px;background:var(--pg-accent);border-radius:1px"></i><i style="flex:1;max-width:8px;height:18px;background:var(--pg-accent);border-radius:1px"></i><i style="flex:1;max-width:8px;height:26px;background:var(--pg-accent);border-radius:1px"></i></div>\n    </div>\n  </div>\n\n  <div style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--pg-line)">\n    <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:12px 0;font-size:11px;color:var(--pg-text-3)">\n      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">\n        <circle cx="12" cy="13.4" r="7.4"/><path d="M12 9.6v3.8l2.3 1.6"/><path d="M9.3 2.8h5.4"/>\n      </svg>计时\n    </div>\n    <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:12px 0;font-size:11px;color:var(--pg-text-3)">\n      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">\n        <path d="M4.5 7.2 6 8.7l2.4-2.7M4.5 12.4 6 13.9l2.4-2.7M4.5 17.6 6 19.1l2.4-2.7"/><path d="M11.6 7.8h8M11.6 13h8M11.6 18.2h5.4"/>\n      </svg>任务\n    </div>\n    <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:12px 0;font-size:11px;color:var(--pg-text);position:relative">\n      <span style="position:absolute;top:-1px;left:50%;transform:translateX(-50%);width:24px;height:2px;background:var(--pg-accent)"></span>\n      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#E2552F" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">\n        <path d="M3.4 20.2h17.2"/><path d="M7 20.2v-6.4M12 20.2V8M17 20.2v-4.2"/>\n      </svg>记录\n    </div>\n  </div>\n</div>\n';
+  const PAGE_SETTINGS = '\n<style>\n  .pg{position:relative;width:100%;height:100%;background:var(--pg-bg);color:var(--pg-text);\n      font-family:"PingFang SC","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;\n      display:flex;flex-direction:column;overflow:hidden;}\n  .pg *{box-sizing:border-box;margin:0;padding:0}\n  .pg-top{flex:none;display:flex;align-items:center;justify-content:space-between;\n      height:52px;padding:0 20px;border-bottom:1px solid var(--pg-line)}\n  .pg-brand{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600}\n  .pg-body{flex:1;min-height:0;display:flex;flex-direction:column;padding:0 20px}\n  .pg-num{font-family:"Bahnschrift","Segoe UI Variable Display",sans-serif;font-variant-numeric:tabular-nums}\n  .pg{--pg-bg:#0D0C0A;--pg-surface:#14120F;--pg-raised:#221F1A;--pg-line:rgba(242,237,230,.07);--pg-line-2:rgba(242,237,230,.13);--pg-line-3:rgba(242,237,230,.22);--pg-text:#F2EDE6;--pg-text-2:#A79C8F;--pg-text-3:#8A8078;--pg-accent:#E2552F;--pg-accent-ink:#170904;--pg-chart:#4A443C}\n</style>\n\n<div class="pg" style="justify-content:flex-end">\n  <div style="position:absolute;inset:0;background:rgba(6,5,4,.62)"></div>\n  <div style="position:relative;background:var(--pg-surface);border-top:1px solid rgba(242,237,230,.13);\n              border-radius:12px 12px 0 0;padding:0 20px 18px;display:flex;flex-direction:column">\n    <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 0 16px;\n                border-bottom:1px solid var(--pg-line)">\n      <h2 style="font-size:16px;font-weight:600">设置</h2>\n      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(242,237,230,.42)" stroke-width="1.9" stroke-linecap="round" transform="rotate(45)">\n        <path d="M12 5.4v13.2M5.4 12h13.2"/>\n      </svg>\n    </div>\n\n    <div style="padding:14px 0 6px;font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--pg-text-3)">时长</div>\n    \n    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;\n                padding:10px 0;border-bottom:1px solid var(--pg-line)">\n      <div>\n        <div style="font-size:14px;font-weight:500">专注</div>\n        <div style="margin-top:2px;font-size:11.5px;color:var(--pg-text-3)">一个番茄的长度</div>\n      </div>\n      <div style="display:flex;align-items:center;gap:1px">\n        <span style="display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--pg-line);border-radius:2px">\n          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A79C8F" stroke-width="1.9" stroke-linecap="round"><path d="M5.4 12h13.2"/></svg>\n        </span>\n        <span class="pg-num" style="min-width:62px;text-align:center;font-size:14px">25<span style="font-family:inherit;font-size:11px;color:var(--pg-text-3);margin-left:3px">分</span></span>\n        <span style="display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--pg-line);border-radius:2px">\n          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A79C8F" stroke-width="1.9" stroke-linecap="round"><path d="M12 5.4v13.2M5.4 12h13.2"/></svg>\n        </span>\n      </div>\n    </div>\n    \n    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;\n                padding:10px 0;border-bottom:1px solid var(--pg-line)">\n      <div>\n        <div style="font-size:14px;font-weight:500">短休息</div>\n        <div style="margin-top:2px;font-size:11.5px;color:var(--pg-text-3)">每个番茄之后</div>\n      </div>\n      <div style="display:flex;align-items:center;gap:1px">\n        <span style="display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--pg-line);border-radius:2px">\n          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A79C8F" stroke-width="1.9" stroke-linecap="round"><path d="M5.4 12h13.2"/></svg>\n        </span>\n        <span class="pg-num" style="min-width:62px;text-align:center;font-size:14px">5<span style="font-family:inherit;font-size:11px;color:var(--pg-text-3);margin-left:3px">分</span></span>\n        <span style="display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--pg-line);border-radius:2px">\n          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A79C8F" stroke-width="1.9" stroke-linecap="round"><path d="M12 5.4v13.2M5.4 12h13.2"/></svg>\n        </span>\n      </div>\n    </div>\n    \n    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;\n                padding:10px 0;border-bottom:1px solid var(--pg-line)">\n      <div>\n        <div style="font-size:14px;font-weight:500">长休息</div>\n        <div style="margin-top:2px;font-size:11.5px;color:var(--pg-text-3)">完成一组之后</div>\n      </div>\n      <div style="display:flex;align-items:center;gap:1px">\n        <span style="display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--pg-line);border-radius:2px">\n          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A79C8F" stroke-width="1.9" stroke-linecap="round"><path d="M5.4 12h13.2"/></svg>\n        </span>\n        <span class="pg-num" style="min-width:62px;text-align:center;font-size:14px">15<span style="font-family:inherit;font-size:11px;color:var(--pg-text-3);margin-left:3px">分</span></span>\n        <span style="display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--pg-line);border-radius:2px">\n          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A79C8F" stroke-width="1.9" stroke-linecap="round"><path d="M12 5.4v13.2M5.4 12h13.2"/></svg>\n        </span>\n      </div>\n    </div>\n    \n    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;\n                padding:10px 0;border-bottom:1px solid var(--pg-line)">\n      <div>\n        <div style="font-size:14px;font-weight:500">每组番茄</div>\n        <div style="margin-top:2px;font-size:11.5px;color:var(--pg-text-3)">几个番茄后进入长休息</div>\n      </div>\n      <div style="display:flex;align-items:center;gap:1px">\n        <span style="display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--pg-line);border-radius:2px">\n          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A79C8F" stroke-width="1.9" stroke-linecap="round"><path d="M5.4 12h13.2"/></svg>\n        </span>\n        <span class="pg-num" style="min-width:62px;text-align:center;font-size:14px">4<span style="font-family:inherit;font-size:11px;color:var(--pg-text-3);margin-left:3px">个</span></span>\n        <span style="display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--pg-line);border-radius:2px">\n          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A79C8F" stroke-width="1.9" stroke-linecap="round"><path d="M12 5.4v13.2M5.4 12h13.2"/></svg>\n        </span>\n      </div>\n    </div>\n\n    <div style="padding:14px 0 6px;font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--pg-text-3)">自动化</div>\n    \n    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;\n                padding:10px 0;border-bottom:1px solid var(--pg-line)">\n      <div>\n        <div style="font-size:14px;font-weight:500">自动进入休息</div>\n        <div style="margin-top:2px;font-size:11.5px;color:var(--pg-text-3)">专注结束后不用手动点</div>\n      </div>\n      \n      <span style="position:relative;display:block;width:42px;height:24px;flex:none">\n        <span style="position:absolute;inset:0;background:var(--pg-accent);border:1px solid #E2552F;border-radius:2px"></span>\n        <span style="position:absolute;top:3px;left:3px;width:16px;height:16px;background:#170904;border-radius:1px;transform:translateX(18px)"></span>\n      </span>\n    </div>\n    \n    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;\n                padding:10px 0;border-bottom:1px solid var(--pg-line)">\n      <div>\n        <div style="font-size:14px;font-weight:500">自动开始下一轮</div>\n        <div style="margin-top:2px;font-size:11.5px;color:var(--pg-text-3)">休息结束后直接进入专注</div>\n      </div>\n      \n      <span style="position:relative;display:block;width:42px;height:24px;flex:none">\n        <span style="position:absolute;inset:0;background:var(--pg-raised);border:1px solid var(--pg-line-2);border-radius:2px"></span>\n        <span style="position:absolute;top:3px;left:3px;width:16px;height:16px;background:#8A8078;border-radius:1px;transform:none"></span>\n      </span>\n    </div>\n\n    <div style="padding:14px 0 6px;font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--pg-text-3)">提醒</div>\n    \n    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;\n                padding:10px 0;border-bottom:1px solid var(--pg-line)">\n      <div>\n        <div style="font-size:14px;font-weight:500">提示音</div>\n        <div style="margin-top:2px;font-size:11.5px;color:var(--pg-text-3)">结束时响三声</div>\n      </div>\n      \n      <span style="position:relative;display:block;width:42px;height:24px;flex:none">\n        <span style="position:absolute;inset:0;background:var(--pg-accent);border:1px solid #E2552F;border-radius:2px"></span>\n        <span style="position:absolute;top:3px;left:3px;width:16px;height:16px;background:#170904;border-radius:1px;transform:translateX(18px)"></span>\n      </span>\n    </div>\n    \n    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;\n                padding:10px 0;border-bottom:1px solid var(--pg-line)">\n      <div>\n        <div style="font-size:14px;font-weight:500">震动</div>\n        <div style="margin-top:2px;font-size:11.5px;color:var(--pg-text-3)">结束时震动提醒</div>\n      </div>\n      \n      <span style="position:relative;display:block;width:42px;height:24px;flex:none">\n        <span style="position:absolute;inset:0;background:var(--pg-accent);border:1px solid #E2552F;border-radius:2px"></span>\n        <span style="position:absolute;top:3px;left:3px;width:16px;height:16px;background:#170904;border-radius:1px;transform:translateX(18px)"></span>\n      </span>\n    </div>\n\n    <div style="padding-top:16px">\n      <div style="display:grid;place-items:center;height:46px;background:var(--pg-accent);color:var(--pg-accent-ink);\n                  font-size:14.5px;font-weight:600;border-radius:6px">完成</div>\n    </div>\n  </div>\n</div>\n';
+
+  function initDemo() {
+
+    /* ── 第一排：项目背景 ───────────────────────────── */
+    addSection(40, "01 项目背景");
+
+    const r1Title = addTitle(100, 90, "番茄钟", { fontSize: 60, fontWeight: 700 });
+    const r1Desc = addText(100, below(r1Title, 14),
+      "一台把注意力当仪表读数的番茄钟。\n专注前写清这一轮做什么，休息时看到成果，结束后沉淀成记录。", { fontSize: 15, maxWidth: 460 });
+
+    const tagsY = below(r1Desc, 18);
+    const tag1 = addTag(100, tagsY, "仪表式表盘");
+    const tag2 = addTag(rightOf(tag1, 8), tagsY, "任务绑定番茄");
+    const tag3 = addTag(rightOf(tag2, 8), tagsY, "记录与习惯");
+    addTag(rightOf(tag3, 8), tagsY, "Android 可安装");
+
+    const cardsY = below(tag1, 26);
+    const card1 = addContextCard(100, cardsY, 300, null, "给谁用",
+      "<p>需要长时间专注、又不想被复杂工具打断的人。手机上单手操作，一眼读完当前状态。</p>" +
+      "<ul><li>学生、写作者、开发者</li><li>想跟踪自己专注量的人</li></ul>");
+    const card2 = addContextCard(420, cardsY, 300, null, "解决什么",
+      "<ul><li>只有倒计时，不知道这一轮在做什么</li><li>番茄结束后没有沉淀，无法回顾</li><li>计时器好看但不可信（切后台就走偏）</li></ul>");
+    const card3 = addContextCard(740, cardsY, 300, null, "三条主流程",
+      "<ol style='list-style:none;padding:0'>" +
+      "<li>① 选任务 → ④ 专注 → 休息</li>" +
+      "<li>② 新建任务 → 估算番茄数</li>" +
+      "<li>③ 查看记录 → 调整节奏</li></ol>");
+
+    const notesY = maxY([card1, card2, card3], 30);
+    const note1 = addNote(100, notesY, "设计要求",
+      "表盘由 60 道真实刻度构成，进度沿刻度推进。刻度是仪表的一部分，不是装饰。");
+    const note2 = addNote(rightOf(note1, 22), notesY, "取舍",
+      "只保留三种模式与一条当前任务。任务与记录各占一屏，不塞进计时页。");
+
+    /* ── 第二排：设计系统 ───────────────────────────── */
+    const r2Start = maxY([card1, card2, card3, note1, note2], 90);
+    addSection(r2Start, "02 设计系统");
+
+    const dsY = r2Start + 60;
+    const colorCard = addDesignSystemCard(100, dsY, 470, null, "color", {
+      title: "色板 · 暖中性底 + 单强调色",
+      html: `<div class="color-swatch-group" style="flex-wrap:wrap;gap:16px;">
+        <div class="swatch-item"><div class="swatch-circle" style="background:var(--pg-bg);border:1px solid rgba(255,255,255,.12)"></div><div class="swatch-name">底 ink-0</div><div class="swatch-hex">#0D0C0A</div></div>
+        <div class="swatch-item"><div class="swatch-circle" style="background:var(--pg-surface)"></div><div class="swatch-name">面 ink-1</div><div class="swatch-hex">#14120F</div></div>
+        <div class="swatch-item"><div class="swatch-circle" style="background:var(--pg-raised)"></div><div class="swatch-name">抬 ink-3</div><div class="swatch-hex">#221F1A</div></div>
+        <div class="swatch-item"><div class="swatch-circle" style="background:#F2EDE6"></div><div class="swatch-name">主文</div><div class="swatch-hex">#F2EDE6</div></div>
+        <div class="swatch-item"><div class="swatch-circle" style="background:#A79C8F"></div><div class="swatch-name">次文</div><div class="swatch-hex">#A79C8F</div></div>
+        <div class="swatch-item"><div class="swatch-circle" style="background:var(--pg-accent)"></div><div class="swatch-name">专注</div><div class="swatch-hex">#E2552F</div></div>
+        <div class="swatch-item"><div class="swatch-circle" style="background:#6FA88A"></div><div class="swatch-name">短休息</div><div class="swatch-hex">#6FA88A</div></div>
+        <div class="swatch-item"><div class="swatch-circle" style="background:#6E86A8"></div><div class="swatch-name">长休息</div><div class="swatch-hex">#6E86A8</div></div>
+      </div>`
+    });
+
+    const typeCard = addDesignSystemCard(600, dsY, 420, null, "typography", {
+      title: "字体 · 数字用等宽仪表字形",
+      html: `<div class="type-sample-group">
+        <div class="type-sample-row"><span class="type-sample-meta">读数<br>68px/300</span><span class="type-sample-text" style="font-family:Bahnschrift,monospace;font-size:40px;font-weight:300;letter-spacing:-.02em;font-variant-numeric:tabular-nums">25:00</span></div>
+        <div class="type-sample-row"><span class="type-sample-meta">标题<br>24px/600</span><span class="type-sample-text" style="font-size:24px;font-weight:600">任务与记录</span></div>
+        <div class="type-sample-row"><span class="type-sample-meta">正文<br>14.5px/400</span><span class="type-sample-text" style="font-size:14.5px">专注前写清这一轮做什么</span></div>
+        <div class="type-sample-row"><span class="type-sample-meta">标签<br>10.5px/600</span><span class="type-sample-text" style="font-size:10.5px;font-weight:600;letter-spacing:.16em">本轮专注</span></div>
+      </div>`
+    });
+
+    const compCard = addDesignSystemCard(1040, dsY, 300, null, "components", {
+      title: "组件与刻度语言",
+      html: `<div style="display:flex;flex-direction:column;gap:14px;">
+        <button style="padding:11px 20px;border:none;border-radius:6px;background:var(--pg-accent);color:var(--pg-accent-ink);font-size:13.5px;font-weight:600;cursor:pointer;">开始专注</button>
+        <button style="padding:11px 20px;border-radius:6px;border:1px solid rgba(255,255,255,.13);background:transparent;color:var(--pg-text);font-size:13.5px;cursor:pointer;">跳过本轮</button>
+        <div style="display:flex;gap:5px;align-items:center">
+          <span style="width:22px;height:3px;background:var(--pg-accent)"></span>
+          <span style="width:22px;height:3px;background:rgba(255,255,255,.13)"></span>
+          <span style="width:22px;height:3px;background:rgba(255,255,255,.13)"></span>
+          <span style="width:22px;height:3px;background:rgba(255,255,255,.13)"></span>
+          <span style="margin-left:8px;font-size:11px;color:var(--pg-text-2)">组内进度</span>
+        </div>
+        <div style="display:flex;gap:3px;align-items:flex-end;height:22px">
+          ${"<i style='width:2px;height:9px;background:rgba(255,255,255,.22);display:block'></i>".repeat(3)}
+          ${"<i style='width:2px;height:9px;background:var(--pg-accent);display:block'></i>".repeat(2)}
+          <span style="margin-left:8px;font-size:11px;color:var(--pg-text-2)">任务番茄数</span>
+        </div>
+      </div>`
+    });
+
+    /* ── 第三排：设计稿 ─────────────────────────────── */
+    const r3Start = maxY([colorCard, typeCard, compCard], 90);
+    addSection(r3Start, "03 设计稿");
+
+    const pagesY = r3Start + 60;
+    const w = 390, h = 780, gap = 60;
+    const p1 = addPage(100, pagesY, w, h, "计时 · 专注中", PAGE_TIMER);
+    const p2 = addPage(100 + (w + gap), pagesY, w, h, "任务 · 清单", PAGE_TASKS);
+    const p3 = addPage(100 + (w + gap) * 2, pagesY, w, h, "记录 · 统计", PAGE_STATS);
+    const p4 = addPage(100 + (w + gap) * 3, pagesY, w, h, "设置 · 抽屉", PAGE_SETTINGS);
+  }
+
+  initDemo();
+
+  const r = viewport.getBoundingClientRect();
+  panX = r.width * 0.04;
+  panY = r.height * 0.04;
+  updateTransform();
+})();
+</script>
+</body>
+</html>

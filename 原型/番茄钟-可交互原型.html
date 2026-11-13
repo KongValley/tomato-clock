@@ -1,0 +1,1856 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-zcode-design>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>番茄钟 · 可交互原型</title>
+<style>
+/* ============================================================
+   番茄钟 · 计时仪器
+   设计令牌集中在 :root，改这里就能整体换肤。
+   ============================================================ */
+:root{
+  /* 底色：暖中性，非纯黑 */
+  --ink-0:#0D0C0A;
+  --ink-1:#14120F;
+  --ink-2:#1A1814;
+  --ink-3:#221F1A;
+
+  /* 分界线 */
+  --line-1:rgba(242,237,230,.07);
+  --line-2:rgba(242,237,230,.13);
+  --line-3:rgba(242,237,230,.22);
+
+  /* 文字 */
+  --text-1:#F2EDE6;
+  --text-2:#A79C8F;
+  --text-3:#8A8078;
+
+  /* 三种模式的语义色：一次只出现一种 */
+  --focus:#E2552F;
+  --short:#6FA88A;
+  --long:#6E86A8;
+
+  /* 当前模式色，由 body[data-mode] 覆盖 */
+  --accent:var(--focus);
+  --accent-ink:#170904;
+
+  /* 设置面板等不随模式变化的固定强调色 */
+  --ui-accent:#E2552F;
+  --ui-accent-ink:#170904;
+
+  /* 状态与特殊层 */
+  --warn:#E8795A;
+  --warn-weak:rgba(232,121,90,.07);
+  --warn-line:rgba(232,121,90,.3);
+  --warn-hover:rgba(232,121,90,.13);
+  --glow:rgba(242,237,230,.045);
+  --chart-bar:#4A443C;
+  --scrim:rgba(6,5,4,.62);
+  --desk:#080706;
+  --desk-shadow:rgba(0,0,0,.9);
+
+  /* 圆角：仪器以直角为主，只有表盘和 transporte 是圆的 */
+  --r-1:2px;
+  --r-2:6px;
+  --r-3:12px;
+  --r-full:999px;
+
+  /* 间距，4 的倍数 */
+  --s-1:4px;  --s-2:8px;  --s-3:12px; --s-4:16px;
+  --s-5:20px; --s-6:24px; --s-7:32px; --s-8:40px; --s-9:56px;
+
+  /* 字体 */
+  --font-ui:"PingFang SC","Hiragino Sans GB","Microsoft YaHei UI","Microsoft YaHei","Source Han Sans SC",system-ui,sans-serif;
+  --font-din:"Bahnschrift","DIN Alternate","Segoe UI Variable Display",var(--font-ui);
+  --font-num:"Bahnschrift","Cascadia Mono",Consolas,"SF Mono",ui-monospace,monospace;
+
+  /* 动效 */
+  --ease:cubic-bezier(.22,.61,.36,1);
+  --dur-1:140ms;
+  --dur-2:260ms;
+  --dur-3:420ms;
+}
+
+body[data-mode="short"]{--accent:var(--short);--accent-ink:#05130C}
+body[data-mode="long"]{--accent:var(--long);--accent-ink:#060C16}
+
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+
+html,body{height:100%}
+body{
+  background:var(--ink-0);
+  color:var(--text-1);
+  font-family:var(--font-ui);
+  font-size:14.5px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  overflow:hidden;
+  -webkit-tap-highlight-color:transparent;
+}
+
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input{font:inherit;color:inherit}
+ul,ol{list-style:none}
+svg{display:block}
+
+/* 焦点环只给键盘用户，不干扰触屏 */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ============================================================
+   应用外壳
+   ============================================================ */
+.app{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  width:100%;
+  max-width:430px;
+  height:100vh;
+  height:100dvh;
+  margin:0 auto;
+  background:var(--ink-0);
+  overflow:hidden;
+}
+
+/* 极淡的顶部氛围光，纯底色不掺强调色 */
+.app::before{
+  content:"";
+  position:absolute;
+  inset:0 0 auto 0;
+  height:340px;
+  background:radial-gradient(120% 100% at 50% 0%,var(--glow),transparent 70%);
+  pointer-events:none;
+}
+
+/* ---------- 顶栏 ---------- */
+.topbar{
+  position:relative;
+  flex:none;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  height:52px;
+  padding:0 var(--s-5);
+  border-bottom:1px solid var(--line-1);
+}
+.brand{display:flex;align-items:center;gap:var(--s-2)}
+.brand-mark{width:18px;height:18px;color:var(--accent);transition:color var(--dur-2) var(--ease)}
+.brand-name{font-size:14px;font-weight:600;letter-spacing:.02em}
+
+.icon-btn{
+  display:grid;place-items:center;
+  width:36px;height:36px;
+  border-radius:var(--r-2);
+  color:var(--text-3);
+  transition:color var(--dur-1) ease,background-color var(--dur-1) ease;
+}
+.icon-btn:hover{color:var(--text-1);background:var(--ink-2)}
+.icon-btn:active{transform:scale(.94)}
+.icon-btn svg{width:19px;height:19px}
+
+/* ---------- 主体区 ---------- */
+.main{
+  position:relative;
+  flex:1;
+  min-height:0;
+  overflow:hidden;
+}
+.view{
+  position:absolute;
+  inset:0;
+  display:flex;
+  flex-direction:column;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding:0 var(--s-5);
+  overscroll-behavior:contain;
+  /* 视图切换：只动 opacity，避免布局抖动 */
+  opacity:0;
+  visibility:hidden;
+  pointer-events:none;
+  transition:opacity var(--dur-2) var(--ease),visibility var(--dur-2) var(--ease);
+}
+.view.is-active{opacity:1;visibility:visible;pointer-events:auto}
+
+/* ============================================================
+   计时视图
+   ============================================================ */
+.view--timer{padding-bottom:var(--s-4)}
+
+/* 当前任务条：一条可点的横带，左对齐 */
+.task-strip{
+  flex:none;
+  display:flex;
+  align-items:center;
+  gap:var(--s-3);
+  width:100%;
+  margin-top:var(--s-5);
+  padding:var(--s-3) var(--s-3) var(--s-3) var(--s-4);
+  text-align:left;
+  border:1px solid var(--line-1);
+  border-radius:var(--r-2);
+  background:var(--ink-1);
+  transition:border-color var(--dur-1) ease,background-color var(--dur-1) ease;
+}
+.task-strip:hover{border-color:var(--line-2);background:var(--ink-2)}
+.task-strip:active{transform:scale(.994)}
+.task-strip__body{flex:1;min-width:0}
+.task-strip__label{
+  display:block;
+  font-size:10.5px;
+  font-weight:600;
+  letter-spacing:.16em;
+  color:var(--text-3);
+  text-transform:uppercase;
+}
+.task-strip__name{
+  display:block;
+  margin-top:2px;
+  font-size:15px;
+  font-weight:600;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.task-strip__chev{flex:none;width:16px;height:16px;color:var(--text-3)}
+
+/* ---------- 表盘 ---------- */
+.dial-wrap{
+  position:relative;
+  flex:1 1 auto;
+  min-height:0;
+  display:grid;
+  place-items:center;
+  width:100%;
+  margin-top:var(--s-4);
+  padding:var(--s-2) 0;
+  container-type:size;
+}
+.dial-frame{
+  position:relative;
+  width:min(100%,344px,calc(100cqh - 8px));
+  max-width:100%;
+  max-height:100%;
+  aspect-ratio:1;
+}
+.dial{width:100%;height:100%;overflow:visible;display:block}
+.dial__tick{stroke:var(--line-2);stroke-width:1.5;stroke-linecap:butt}
+.dial__tick--major{stroke:var(--line-3);stroke-width:2}
+.dial__track{fill:none;stroke:var(--line-1);stroke-width:2.5}
+.dial__arc{
+  fill:none;
+  stroke:var(--accent);
+  stroke-width:2.5;
+  stroke-linecap:round;
+  transition:stroke var(--dur-3) var(--ease);
+}
+.dial__needle{fill:var(--accent);transition:fill var(--dur-3) var(--ease)}
+.dial__needle--idle{opacity:0}
+
+/* 表盘读数：数字用等宽，避免跳秒抖动 */
+.dial-face{
+  position:absolute;
+  inset:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  pointer-events:none;
+}
+.dial-mode{
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:.2em;
+  text-indent:.2em;
+  color:var(--accent);
+  transition:color var(--dur-3) var(--ease);
+}
+.dial-time{
+  margin-top:var(--s-2);
+  font-family:var(--font-num);
+  font-size:clamp(56px,17vw,72px);
+  font-weight:300;
+  line-height:1;
+  letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;
+  font-feature-settings:"tnum" 1;
+}
+.dial-meta{
+  margin-top:var(--s-3);
+  font-size:12px;
+  color:var(--text-2);
+  font-variant-numeric:tabular-nums;
+}
+
+/* ---------- 组内进度：4 段横条 ---------- */
+.set-meter{
+  flex:none;
+  display:flex;
+  align-items:center;
+  gap:var(--s-3);
+  margin-top:var(--s-3);
+}
+.set-pips{display:flex;gap:5px}
+.set-pip{
+  width:22px;height:3px;
+  background:var(--line-2);
+  transition:background-color var(--dur-2) var(--ease);
+}
+.set-pip.is-done{background:var(--accent)}
+.set-meter__text{font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+
+/* ---------- transport ---------- */
+.transport{
+  flex:none;
+  display:grid;
+  grid-template-columns:48px 68px 48px;
+  align-items:center;
+  justify-content:center;
+  gap:var(--s-7);
+  margin-top:var(--s-2);
+  padding-top:0;
+}
+.tbtn{
+  display:grid;place-items:center;
+  width:48px;height:48px;
+  border-radius:var(--r-full);
+  color:var(--text-3);
+  border:1px solid var(--line-1);
+  transition:color var(--dur-1) ease,border-color var(--dur-1) ease,transform var(--dur-1) ease,opacity var(--dur-1) ease;
+}
+.tbtn:hover{color:var(--text-1);border-color:var(--line-3)}
+.tbtn:active{transform:scale(.92)}
+.tbtn:disabled{opacity:.28;cursor:default;transform:none;border-color:var(--line-1);color:var(--text-3)}
+.tbtn svg{width:19px;height:19px}
+
+.tbtn--primary{
+  width:68px;height:68px;
+  border:0;
+  background:var(--accent);
+  color:var(--accent-ink);
+  transition:background-color var(--dur-3) var(--ease),color var(--dur-3) var(--ease),transform var(--dur-1) ease;
+}
+.tbtn--primary:hover{border:0}
+.tbtn--primary:active{transform:scale(.94)}
+.tbtn--primary svg{width:26px;height:26px}
+
+/* ---------- 今日读数：一行，像仪表下方的汇总读数 ---------- */
+.readout{
+  flex:none;
+  display:flex;
+  align-items:center;
+  gap:var(--s-4);
+  margin-top:var(--s-6);
+  padding-top:var(--s-4);
+  border-top:1px solid var(--line-1);
+  font-size:12px;
+  color:var(--text-3);
+  font-variant-numeric:tabular-nums;
+}
+.readout b{color:var(--text-1);font-weight:600}
+.readout-sep{width:1px;height:11px;background:var(--line-2)}
+
+/* ============================================================
+   底部标签栏
+   ============================================================ */
+.tabbar{
+  position:relative;
+  flex:none;
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  border-top:1px solid var(--line-1);
+  background:var(--ink-0);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.tab{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:5px;
+  padding:var(--s-3) 0 var(--s-3);
+  font-size:11px;
+  letter-spacing:.04em;
+  color:var(--text-3);
+  transition:color var(--dur-1) ease;
+}
+.tab:hover{color:var(--text-2)}
+.tab[aria-selected="true"]{color:var(--text-1)}
+.tab svg{width:20px;height:20px}
+.tab[aria-selected="true"] svg{color:var(--accent);transition:color var(--dur-3) var(--ease)}
+/* 选中标记：一条细横线，与仪器的刻度语言一致 */
+.tab::after{
+  content:"";
+  position:absolute;
+  top:-1px;left:50%;
+  width:0;height:2px;
+  background:var(--accent);
+  transform:translateX(-50%);
+  transition:width var(--dur-2) var(--ease),background-color var(--dur-3) var(--ease);
+}
+.tab[aria-selected="true"]::after{width:24px}
+
+/* ============================================================
+   列表视图（任务）
+   ============================================================ */
+.view-head{
+  flex:none;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--s-4);
+  padding:var(--s-6) 0 var(--s-5);
+}
+.view-title{font-size:24px;font-weight:600;letter-spacing:-.01em;line-height:1.15}
+.view-head__aside{font-size:12px;color:var(--text-3);font-variant-numeric:tabular-nums}
+
+.ghost-btn{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:7px 11px 7px 9px;
+  font-size:13px;
+  font-weight:600;
+  color:var(--text-1);
+  border:1px solid var(--line-2);
+  border-radius:var(--r-2);
+  transition:border-color var(--dur-1) ease,background-color var(--dur-1) ease,transform var(--dur-1) ease;
+}
+.ghost-btn:hover{border-color:var(--line-3);background:var(--ink-2)}
+.ghost-btn:active{transform:scale(.97)}
+.ghost-btn svg{width:15px;height:15px;color:var(--accent)}
+
+.group{margin-bottom:var(--s-7)}
+.group-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding-bottom:var(--s-2);
+  font-size:10.5px;
+  font-weight:600;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:var(--text-3);
+}
+.group-head span:last-child{font-variant-numeric:tabular-nums;letter-spacing:0}
+
+.task{display:flex;align-items:stretch;border-bottom:1px solid var(--line-1)}
+.task__main{
+  flex:1;
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:var(--s-3);
+  padding:13px 0;
+  text-align:left;
+  transition:opacity var(--dur-1) ease;
+}
+.task__main:active{opacity:.6}
+.task__box{
+  flex:none;
+  display:grid;place-items:center;
+  width:17px;height:17px;
+  color:transparent;
+  border:1px solid var(--line-3);
+  border-radius:var(--r-1);
+  transition:color var(--dur-1) ease,border-color var(--dur-1) ease,background-color var(--dur-1) ease;
+}
+.task__box svg{width:10px;height:10px}
+.task__main:hover .task__box{border-color:var(--text-2)}
+.task.is-done .task__box{color:var(--accent-ink);background:var(--accent);border-color:var(--accent)}
+.task__body{flex:1;min-width:0}
+.task__name{
+  display:block;
+  font-size:14.5px;
+  font-weight:500;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.task.is-done .task__name{color:var(--text-3);text-decoration:line-through;text-decoration-color:var(--line-3)}
+.task__meta{
+  display:flex;
+  align-items:center;
+  gap:var(--s-2);
+  margin-top:3px;
+  font-size:11.5px;
+  color:var(--text-3);
+  font-variant-numeric:tabular-nums;
+}
+/* 番茄计数：小竖条，与表盘刻度同一语言 */
+.pips{display:inline-flex;align-items:center;gap:3px}
+.pips i{display:block;width:2px;height:9px;background:var(--line-3)}
+.pips i.is-done{background:var(--accent)}
+.task.is-done .pips i.is-done{background:var(--text-3)}
+.task__current{
+  flex:none;
+  align-self:center;
+  padding:3px 7px;
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.1em;
+  color:var(--accent);
+  border:1px solid currentColor;
+  border-radius:var(--r-1);
+}
+.task.is-current .task__name{color:var(--text-1)}
+
+.empty{
+  padding:var(--s-9) 0;
+  text-align:center;
+  font-size:13px;
+  color:var(--text-3);
+  line-height:1.7;
+}
+
+/* ============================================================
+   统计视图
+   ============================================================ */
+.demo-note{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:3px 7px;
+  font-size:10.5px;
+  letter-spacing:.04em;
+  color:var(--text-3);
+  border:1px dashed var(--line-2);
+  border-radius:var(--r-1);
+}
+
+.stat-row{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:1px;
+  background:var(--line-1);
+  border-top:1px solid var(--line-1);
+  border-bottom:1px solid var(--line-1);
+  margin-bottom:var(--s-7);
+}
+.stat{
+  padding:var(--s-4) 0 var(--s-4) var(--s-1);
+  background:var(--ink-0);
+}
+.stat b{
+  display:block;
+  font-family:var(--font-num);
+  font-size:30px;
+  font-weight:400;
+  line-height:1.05;
+  letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;
+}
+.stat span{display:block;margin-top:5px;font-size:11.5px;color:var(--text-3)}
+
+.panel{margin-bottom:var(--s-7)}
+.panel-head{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:var(--s-4);
+  padding-bottom:var(--s-4);
+}
+.panel-title{font-size:13px;font-weight:600;letter-spacing:.02em}
+.panel-aside{font-size:11.5px;color:var(--text-3);font-variant-numeric:tabular-nums}
+
+/* 周柱状：只有基线与柱子，没有背景轨道 */
+.chart{width:100%;height:132px;overflow:visible}
+.chart-base{stroke:var(--line-2);stroke-width:1}
+.chart-bar{fill:var(--chart-bar);transition:fill var(--dur-2) var(--ease)}
+.chart-bar--today{fill:var(--accent)}
+.chart-label{fill:var(--text-3);font-size:10px;font-family:var(--font-ui)}
+.chart-label--today{fill:var(--text-1);font-weight:600}
+.chart-value{fill:var(--text-2);font-size:9.5px;font-family:var(--font-num);text-anchor:middle}
+
+/* 连续天数：一条横向刻度尺 */
+.streak{
+  display:flex;
+  align-items:center;
+  gap:var(--s-4);
+  padding:var(--s-5) 0 var(--s-4);
+  border-top:1px solid var(--line-1);
+}
+.streak__main{flex:none;display:flex;align-items:baseline;gap:var(--s-2)}
+.streak__unit{font-size:12px;color:var(--text-3);margin-left:1px}
+.streak__num{
+  font-family:var(--font-num);
+  font-size:26px;
+  font-weight:400;
+  line-height:1;
+  font-variant-numeric:tabular-nums;
+}
+.streak__label{font-size:12px;color:var(--text-3);line-height:1.4}
+.streak__ruler{flex:1;display:flex;gap:3px;justify-content:flex-end;align-items:flex-end}
+.streak__ruler i{flex:1;max-width:8px;height:18px;background:var(--line-2);border-radius:1px}
+.streak__ruler i.is-on{background:var(--accent)}
+.streak__ruler i.is-today{height:26px}
+
+/* ============================================================
+   浮层：底部抽屉
+   ============================================================ */
+.scrim{
+  position:fixed;
+  inset:0;
+  z-index:40;
+  background:var(--scrim);
+  opacity:0;
+  visibility:hidden;
+  transition:opacity var(--dur-2) var(--ease),visibility var(--dur-2) var(--ease);
+}
+.scrim.is-open{opacity:1;visibility:visible}
+
+.sheet{
+  position:fixed;
+  left:0;right:0;bottom:0;
+  z-index:41;
+  width:100%;
+  max-width:430px;
+  margin:0 auto;
+  max-height:min(92dvh,900px);
+  display:flex;
+  flex-direction:column;
+  background:var(--ink-1);
+  border-top:1px solid var(--line-2);
+  border-radius:var(--r-3) var(--r-3) 0 0;
+  padding:0 var(--s-5) calc(var(--s-6) + env(safe-area-inset-bottom));
+  transform:translateY(101%);
+  visibility:hidden;
+  transition:transform var(--dur-3) var(--ease),visibility var(--dur-3) var(--ease);
+}
+.sheet.is-open{transform:translateY(0);visibility:visible}
+.sheet__head{
+  flex:none;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--s-4);
+  padding:var(--s-5) 0 var(--s-4);
+  border-bottom:1px solid var(--line-1);
+}
+.sheet__title{font-size:16px;font-weight:600}
+.sheet__body{
+  flex:1;min-height:0;
+  overflow-y:auto;
+  padding-top:var(--s-2);
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+}
+.sheet__body::-webkit-scrollbar{display:none}
+.sheet__foot{
+  flex:none;
+  display:flex;
+  gap:var(--s-3);
+  padding-top:var(--s-4);
+  border-top:1px solid var(--line-1);
+  background:linear-gradient(to bottom,transparent,var(--ink-1) 22%);
+}
+
+/* 设置行 */
+.srow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--s-4);
+  padding:13px 0;
+  border-bottom:1px solid var(--line-1);
+}
+.srow:last-child{border-bottom:0}
+.srow__label{font-size:14px;font-weight:500}
+.srow__hint{margin-top:2px;font-size:11.5px;color:var(--text-3);line-height:1.45}
+.srow__side{flex:none;display:flex;align-items:center;gap:var(--s-3)}
+
+.sgroup-title{
+  padding:var(--s-5) 0 var(--s-2);
+  font-size:10.5px;
+  font-weight:600;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:var(--text-3);
+}
+
+/* 步进器 */
+.stepper{display:flex;align-items:center;gap:1px}
+.stepper button{
+  display:grid;place-items:center;
+  width:32px;height:32px;
+  color:var(--text-2);
+  border:1px solid var(--line-1);
+  border-radius:var(--r-1);
+  transition:color var(--dur-1) ease,border-color var(--dur-1) ease,background-color var(--dur-1) ease;
+}
+.stepper button:hover{color:var(--text-1);border-color:var(--line-3);background:var(--ink-2)}
+.stepper button:active{transform:scale(.92)}
+.stepper button:disabled{opacity:.25;cursor:default;transform:none;background:none;border-color:var(--line-1);color:var(--text-2)}
+.stepper button svg{width:13px;height:13px}
+.stepper__val{
+  min-width:62px;
+  text-align:center;
+  font-family:var(--font-num);
+  font-size:14px;
+  font-variant-numeric:tabular-nums;
+}
+.stepper__val small{font-family:var(--font-ui);font-size:11px;color:var(--text-3);margin-left:3px}
+
+/* 开关：方形滑块，与直角系统一致 */
+.switch{position:relative;display:block;width:42px;height:24px;flex:none}
+.switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.switch__rail{
+  position:absolute;inset:0;
+  background:var(--ink-3);
+  border:1px solid var(--line-2);
+  border-radius:var(--r-1);
+  transition:background-color var(--dur-2) var(--ease),border-color var(--dur-2) var(--ease);
+  pointer-events:none;
+}
+.switch__rail::after{
+  content:"";
+  position:absolute;top:3px;left:3px;
+  width:16px;height:16px;
+  background:var(--text-3);
+  border-radius:1px;
+  transition:transform var(--dur-2) var(--ease),background-color var(--dur-2) var(--ease);
+}
+.switch input:checked + .switch__rail{background:var(--ui-accent);border-color:var(--ui-accent)}
+.switch input:checked + .switch__rail::after{transform:translateX(18px);background:var(--ui-accent-ink)}
+.switch input:focus-visible + .switch__rail{outline:2px solid var(--accent);outline-offset:2px}
+
+/* 输入框 */
+.field{margin-top:var(--s-2)}
+.field + .field{margin-top:var(--s-5)}
+.field__label{display:block;margin-bottom:7px;font-size:11.5px;font-weight:600;letter-spacing:.06em;color:var(--text-3)}
+.field input[type="text"]{
+  width:100%;
+  padding:12px var(--s-3);
+  font-size:15px;
+  background:var(--ink-2);
+  border:1px solid var(--line-2);
+  border-radius:var(--r-2);
+  transition:border-color var(--dur-1) ease,background-color var(--dur-1) ease;
+}
+.field input[type="text"]::placeholder{color:var(--text-3)}
+.field input[type="text"]:hover{border-color:var(--line-3)}
+.field input[type="text"]:focus{outline:none;border-color:var(--accent);background:var(--ink-3)}
+.field__error{margin-top:9px;font-size:11.5px;line-height:1.4;color:var(--warn);min-height:16px}
+
+.solid-btn{
+  flex:1;
+  display:grid;place-items:center;
+  height:46px;
+  font-size:14.5px;
+  font-weight:600;
+  color:var(--accent-ink);
+  background:var(--accent);
+  border-radius:var(--r-2);
+  transition:filter var(--dur-1) ease,transform var(--dur-1) ease,background-color var(--dur-3) var(--ease);
+}
+.solid-btn:hover{filter:brightness(1.08)}
+.solid-btn:active{transform:scale(.985)}
+.solid-btn:disabled{opacity:.4;cursor:default;filter:none;transform:none}
+.line-btn{
+  flex:none;
+  padding:0 var(--s-5);
+  height:46px;
+  font-size:14.5px;
+  font-weight:500;
+  color:var(--text-2);
+  border:1px solid var(--line-2);
+  border-radius:var(--r-2);
+  transition:color var(--dur-1) ease,border-color var(--dur-1) ease;
+}
+.line-btn:hover{color:var(--text-1);border-color:var(--line-3)}
+
+.danger-btn{
+  width:100%;
+  height:44px;
+  font-size:13.5px;
+  font-weight:600;
+  color:var(--warn);
+  background:var(--warn-weak);
+  border:1px solid var(--warn-line);
+  border-radius:var(--r-2);
+  transition:background-color var(--dur-1) ease;
+}
+.danger-btn:hover{background:var(--warn-hover)}
+
+/* 轻提示 */
+.toast{
+  position:fixed;
+  left:50%;bottom:84px;
+  z-index:50;
+  transform:translate(-50%,8px);
+  padding:9px 14px;
+  font-size:12.5px;
+  color:var(--text-1);
+  background:var(--ink-3);
+  border:1px solid var(--line-2);
+  border-radius:var(--r-2);
+  opacity:0;
+  visibility:hidden;
+  pointer-events:none;
+  transition:opacity var(--dur-2) var(--ease),transform var(--dur-2) var(--ease),visibility var(--dur-2) var(--ease);
+}
+.toast.is-on{opacity:1;visibility:visible;transform:translate(-50%,0)}
+
+/* ============================================================
+   响应式：桌面居中成一台“仪器”
+   ============================================================ */
+@media (min-width:520px){
+  body{display:grid;place-items:center;background:var(--desk)}
+  .app{
+    height:min(874px,calc(100dvh - 48px));
+    max-width:430px;
+    border:1px solid var(--line-2);
+    border-radius:var(--r-3);
+    overflow:hidden;
+  }
+  .sheet{max-width:430px;border-radius:var(--r-3) var(--r-3) 0 0}
+}
+@media (min-width:520px) and (min-height:780px){
+  .app{box-shadow:0 24px 70px -30px var(--desk-shadow)}
+}
+
+/* 矮屏压缩 */
+@media (max-height:700px){
+  .dial-wrap{max-width:264px;margin-top:var(--s-2)}
+  .transport{padding-top:var(--s-4)}
+  .readout{margin-top:var(--s-4);padding-top:var(--s-3)}
+  .task-strip{margin-top:var(--s-3)}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition-duration:.001ms !important;animation-duration:.001ms !important}
+}
+</style>
+</head>
+<body data-mode="focus">
+
+<!-- 图标：1.6px 线性，统一 currentColor -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="i-tomato" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 21c4.4 0 7.5-3 7.5-7.1 0-4-3.1-6.9-7.5-6.9s-7.5 2.9-7.5 6.9C4.5 18 7.6 21 12 21Z"/>
+      <path d="M12 7V4.2"/>
+      <path d="M12 5.4c-1.3-1-2.9-1.3-4.3-.8M12 5.4c1.3-1 2.9-1.3 4.3-.8"/>
+    </g>
+    <g id="i-settings" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="2.8"/>
+      <path d="M12 3.2v2.1M12 18.7v2.1M4.6 7.8l1.8 1.1M17.6 15.1l1.8 1.1M4.6 16.2l1.8-1.1M17.6 8.9l1.8-1.1"/>
+    </g>
+    <g id="i-play" fill="currentColor">
+      <path d="M8.4 5.6c0-.85.93-1.36 1.65-.9l8.2 5.4a1.06 1.06 0 0 1 0 1.8l-8.2 5.4c-.72.46-1.65-.05-1.65-.9Z"/>
+    </g>
+    <g id="i-pause" fill="currentColor">
+      <rect x="7.4" y="5" width="3.2" height="14" rx="1.1"/>
+      <rect x="13.4" y="5" width="3.2" height="14" rx="1.1"/>
+    </g>
+    <g id="i-reset" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3.6 11.2a8.4 8.4 0 1 0 3-6.4"/>
+      <path d="M3.6 4.6v5.1h5.1"/>
+    </g>
+    <g id="i-skip" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6 5.6c0-.85.93-1.36 1.65-.9l7.3 5.2a1.06 1.06 0 0 1 0 1.8l-7.3 5.2c-.72.46-1.65-.05-1.65-.9Z"/>
+      <path d="M17.6 5.2v13.6"/>
+    </g>
+    <g id="i-tasks" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4.5 7.2 6 8.7l2.4-2.7M4.5 12.4 6 13.9l2.4-2.7M4.5 17.6 6 19.1l2.4-2.7"/>
+      <path d="M11.6 7.8h8M11.6 13h8M11.6 18.2h5.4"/>
+    </g>
+    <g id="i-chart" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3.4 20.2h17.2"/>
+      <path d="M7 20.2v-6.4M12 20.2V8M17 20.2v-4.2"/>
+    </g>
+    <g id="i-timer" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="13.4" r="7.4"/>
+      <path d="M12 9.6v3.8l2.3 1.6"/>
+      <path d="M9.3 2.8h5.4"/>
+    </g>
+    <g id="i-check" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4.4 12.3 9 16.9 19.6 6.3"/>
+    </g>
+    <g id="i-plus" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+      <path d="M12 5.4v13.2M5.4 12h13.2"/>
+    </g>
+    <g id="i-minus" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+      <path d="M5.4 12h13.2"/>
+    </g>
+    <g id="i-chevron-right" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9.4 5.6 16 12l-6.6 6.4"/>
+    </g>
+    <g id="i-check-slim" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 12.5 9.6 17 19 7.4"/>
+    </g>
+  </defs>
+</svg>
+
+<div class="app">
+
+  <!-- ===== 顶栏 ===== -->
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-tomato"/></svg>
+      <span class="brand-name">番茄钟</span>
+    </div>
+    <button class="icon-btn" id="openSettings" aria-label="设置">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"/></svg>
+    </button>
+  </header>
+
+  <div class="main">
+
+    <!-- ================= 计时视图 ================= -->
+    <section class="view view--timer is-active" id="view-timer" aria-label="计时">
+      <button class="task-strip" id="taskStrip">
+        <span class="task-strip__body">
+          <span class="task-strip__label">本轮专注</span>
+          <span class="task-strip__name" id="stripName">未选择任务</span>
+        </span>
+        <svg class="task-strip__chev" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chevron-right"/></svg>
+      </button>
+
+      <div class="dial-wrap">
+        <div class="dial-frame">
+        <svg class="dial" id="dial" viewBox="0 0 300 300" aria-hidden="true">
+          <g id="ticks"></g>
+          <circle class="dial__track" cx="150" cy="150" r="118"/>
+          <circle class="dial__arc" id="arc" cx="150" cy="150" r="118"
+                  stroke-dasharray="741.42" stroke-dashoffset="741.42"/>
+          <g class="dial__needle" id="needle">
+            <path d="M0 -7 L3.4 -1.2 L0 4.6 L-3.4 -1.2 Z"/>
+          </g>
+        </svg>
+        <div class="dial-face">
+          <span class="dial-mode" id="dialMode">专注</span>
+          <span class="dial-time" id="dialTime" role="timer" aria-live="off">25:00</span>
+          <span class="dial-meta" id="dialMeta">第 1 个番茄</span>
+        </div>
+        </div>
+      </div>
+
+      <div class="set-meter">
+        <div class="set-pips" id="setPips" aria-hidden="true"></div>
+        <span class="set-meter__text" id="setText">本轮 0 / 4</span>
+      </div>
+
+      <div class="transport">
+        <button class="tbtn" id="resetBtn" aria-label="重置本轮">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-reset"/></svg>
+        </button>
+        <button class="tbtn tbtn--primary" id="mainBtn" aria-label="开始专注">
+          <svg viewBox="0 0 24 24" id="mainIcon" aria-hidden="true"><use href="#i-play"/></svg>
+        </button>
+        <button class="tbtn" id="skipBtn" aria-label="跳过本轮">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-skip"/></svg>
+        </button>
+      </div>
+
+      <div class="readout">
+        <span>今日 <b id="roCount">0</b> 个番茄</span>
+        <span class="readout-sep"></span>
+        <span>专注 <b id="roMin">0</b> 分钟</span>
+        <span class="readout-sep"></span>
+        <span>连续 <b id="roStreak">0</b> 天</span>
+      </div>
+    </section>
+
+    <!-- ================= 任务视图 ================= -->
+    <section class="view" id="view-tasks" aria-label="任务">
+      <div class="view-head">
+        <h1 class="view-title">任务</h1>
+        <button class="ghost-btn" id="addTaskBtn">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
+          新建
+        </button>
+      </div>
+
+      <div class="group">
+        <div class="group-head"><span>进行中</span><span id="openCount">0</span></div>
+        <div id="taskListOpen"></div>
+      </div>
+
+      <div class="group">
+        <div class="group-head"><span>已完成</span><span id="doneCount">0</span></div>
+        <div id="taskListDone"></div>
+      </div>
+    </section>
+
+    <!-- ================= 统计视图 ================= -->
+    <section class="view" id="view-stats" aria-label="统计">
+      <div class="view-head">
+        <h1 class="view-title">记录</h1>
+        <span class="demo-note">示例数据</span>
+      </div>
+
+      <div class="stat-row">
+        <div class="stat"><b id="stToday">0</b><span>今日番茄</span></div>
+        <div class="stat"><b id="stMin">0</b><span>今日分钟</span></div>
+        <div class="stat"><b id="stRate">0%</b><span>计划完成</span></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">最近七天</span>
+          <span class="panel-aside" id="weekTotal">0 个番茄</span>
+        </div>
+        <svg class="chart" id="chart" viewBox="0 0 320 132" aria-label="最近七天番茄数"></svg>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">连续专注</span>
+        </div>
+        <div class="streak">
+          <div class="streak__main">
+            <span class="streak__num" id="stStreak">0</span>
+            <span class="streak__unit">天</span>
+          </div>
+          <span class="streak__label">连续达成<br>近 14 天</span>
+          <div class="streak__ruler" id="streakRuler" aria-hidden="true"></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ===== 底部标签栏 ===== -->
+  <nav class="tabbar" role="tablist" aria-label="主导航" data-full-bleed>
+    <button class="tab" role="tab" data-view="timer" aria-selected="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-timer"/></svg>
+      计时
+    </button>
+    <button class="tab" role="tab" data-view="tasks" aria-selected="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-tasks"/></svg>
+      任务
+    </button>
+    <button class="tab" role="tab" data-view="stats" aria-selected="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart"/></svg>
+      记录
+    </button>
+  </nav>
+</div>
+
+<!-- ===== 遮罩 ===== -->
+<div class="scrim" id="scrim"></div>
+
+<!-- ===== 设置抽屉 ===== -->
+<section class="sheet" id="settingsSheet" role="dialog" aria-modal="true" aria-label="设置">
+  <div class="sheet__head">
+    <h2 class="sheet__title">设置</h2>
+    <button class="icon-btn" data-close aria-label="关闭设置">
+      <svg viewBox="0 0 24 24" aria-hidden="true" style="transform:rotate(45deg)"><use href="#i-plus"/></svg>
+    </button>
+  </div>
+  <div class="sheet__body">
+
+    <div class="sgroup-title">时长</div>
+    <div class="srow">
+      <div><div class="srow__label">专注</div><div class="srow__hint">一个番茄的长度</div></div>
+      <div class="stepper" data-key="focus" data-min="1" data-max="90" data-unit="分">
+        <button data-step="-1" aria-label="减少专注时长"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-minus"/></svg></button>
+        <span class="stepper__val">25<small>分</small></span>
+        <button data-step="1" aria-label="增加专注时长"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg></button>
+      </div>
+    </div>
+    <div class="srow">
+      <div><div class="srow__label">短休息</div><div class="srow__hint">每个番茄之后</div></div>
+      <div class="stepper" data-key="short" data-min="1" data-max="30" data-unit="分">
+        <button data-step="-1" aria-label="减少短休息"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-minus"/></svg></button>
+        <span class="stepper__val">5<small>分</small></span>
+        <button data-step="1" aria-label="增加短休息"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg></button>
+      </div>
+    </div>
+    <div class="srow">
+      <div><div class="srow__label">长休息</div><div class="srow__hint">完成一组之后</div></div>
+      <div class="stepper" data-key="long" data-min="1" data-max="60" data-unit="分">
+        <button data-step="-1" aria-label="减少长休息"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-minus"/></svg></button>
+        <span class="stepper__val">15<small>分</small></span>
+        <button data-step="1" aria-label="增加长休息"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg></button>
+      </div>
+    </div>
+    <div class="srow">
+      <div><div class="srow__label">每组番茄</div><div class="srow__hint">几个番茄后进入长休息</div></div>
+      <div class="stepper" data-key="setSize" data-min="2" data-max="8" data-unit="个">
+        <button data-step="-1" aria-label="减少每组番茄"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-minus"/></svg></button>
+        <span class="stepper__val">4<small>个</small></span>
+        <button data-step="1" aria-label="增加每组番茄"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg></button>
+      </div>
+    </div>
+
+    <div class="sgroup-title">自动化</div>
+    <div class="srow">
+      <div><div class="srow__label">自动进入休息</div><div class="srow__hint">专注结束后不用手动点</div></div>
+      <div class="srow__side">
+        <label class="switch"><input type="checkbox" id="swAutoBreak"><span class="switch__rail"></span></label>
+      </div>
+    </div>
+    <div class="srow">
+      <div><div class="srow__label">自动开始下一轮</div><div class="srow__hint">休息结束后直接进入专注</div></div>
+      <div class="srow__side">
+        <label class="switch"><input type="checkbox" id="swAutoFocus"><span class="switch__rail"></span></label>
+      </div>
+    </div>
+
+    <div class="sgroup-title">提醒</div>
+    <div class="srow">
+      <div><div class="srow__label">提示音</div><div class="srow__hint">结束时响三声</div></div>
+      <div class="srow__side">
+        <label class="switch"><input type="checkbox" id="swSound"><span class="switch__rail"></span></label>
+      </div>
+    </div>
+    <div class="srow">
+      <div><div class="srow__label">震动</div><div class="srow__hint">结束时震动提醒</div></div>
+      <div class="srow__side">
+        <label class="switch"><input type="checkbox" id="swVibrate"><span class="switch__rail"></span></label>
+      </div>
+    </div>
+
+    <div class="sgroup-title">数据</div>
+    <button class="danger-btn" id="clearData">清除全部记录</button>
+  </div>
+  <div class="sheet__foot">
+    <button class="solid-btn" data-close>完成</button>
+  </div>
+</section>
+
+<!-- ===== 新建任务抽屉 ===== -->
+<section class="sheet" id="taskSheet" role="dialog" aria-modal="true" aria-label="新建任务">
+  <div class="sheet__head">
+    <h2 class="sheet__title">新建任务</h2>
+    <button class="icon-btn" data-close aria-label="关闭">
+      <svg viewBox="0 0 24 24" aria-hidden="true" style="transform:rotate(45deg)"><use href="#i-plus"/></svg>
+    </button>
+  </div>
+  <div class="sheet__body">
+    <div class="field">
+      <label class="field__label" for="taskName">任务名称</label>
+      <input type="text" id="taskName" placeholder="例如：写完方案第 2 节" autocomplete="off" maxlength="40">
+      <div class="field__error" id="taskError"></div>
+    </div>
+    <div class="srow">
+      <div><div class="srow__label">预计番茄</div><div class="srow__hint">完成这项任务大概需要几个</div></div>
+      <div class="stepper" data-key="estimate" data-min="1" data-max="12" data-unit="个">
+        <button data-step="-1" aria-label="减少预计番茄"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-minus"/></svg></button>
+        <span class="stepper__val">2<small>个</small></span>
+        <button data-step="1" aria-label="增加预计番茄"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg></button>
+      </div>
+    </div>
+  </div>
+  <div class="sheet__foot">
+    <button class="line-btn" data-close>取消</button>
+    <button class="solid-btn" id="saveTask">创建任务</button>
+  </div>
+</section>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+  /* ============================================================
+     数据
+     ============================================================ */
+  const CFG = {
+    focus: 25, short: 5, long: 15, setSize: 4,
+    autoBreak: true, autoFocus: false, sound: true, vibrate: true,
+  };
+
+  const MODES = {
+    focus: { name: "专注", key: "focus" },
+    short: { name: "短休息", key: "short" },
+    long: { name: "长休息", key: "long" },
+  };
+
+  // 示例任务。demo:true 仅用于原型演示，接入真实数据时替换。
+  let tasks = [
+    { id: "t1", name: "写完方案第 2 节", done: 2, estimate: 4, finished: false },
+    { id: "t2", name: "整理上周会议记录", done: 1, estimate: 2, finished: false },
+    { id: "t3", name: "回复设计评审意见", done: 0, estimate: 3, finished: false },
+    { id: "t4", name: "备份项目资料", done: 2, estimate: 2, finished: true },
+    { id: "t5", name: "更新需求文档目录", done: 1, estimate: 1, finished: true },
+  ];
+
+  // 最近七天（示例数据，最后一项为今天）
+  const weekData = [
+    { label: "周四", value: 3 },
+    { label: "周五", value: 5 },
+    { label: "周六", value: 2 },
+    { label: "周日", value: 0 },
+    { label: "周一", value: 6 },
+    { label: "周二", value: 4 },
+    { label: "今天", value: 0, today: true },
+  ];
+
+  const state = {
+    view: "timer",
+    mode: "focus",
+    running: false,
+    remain: CFG.focus * 60000,
+    total: CFG.focus * 60000,
+    endAt: 0,
+    setDone: 0,          // 本组已完成的番茄数
+    activeTaskId: "t1",
+    today: 0,            // 今日番茄（运行期累加）
+    todayMs: 0,
+    streak: 4,
+  };
+
+  /* ============================================================
+     持久化（原型用 localStorage，演示数据不写入统计）
+     ============================================================ */
+  const KEY = "tomato.proto.v1";
+  function save() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify({
+        cfg: CFG,
+        tasks,
+        activeTaskId: state.activeTaskId,
+        today: state.today,
+        todayMs: state.todayMs,
+        streak: state.streak,
+      }));
+    } catch {}
+  }
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (d.cfg) Object.assign(CFG, d.cfg);
+      if (Array.isArray(d.tasks) && d.tasks.length) tasks = d.tasks;
+      if (typeof d.activeTaskId === "string") state.activeTaskId = d.activeTaskId;
+      if (Number.isFinite(d.today)) state.today = d.today;
+      if (Number.isFinite(d.todayMs)) state.todayMs = d.todayMs;
+      if (Number.isFinite(d.streak)) state.streak = d.streak;
+    } catch {}
+  }
+
+  /* ============================================================
+     表盘刻度
+     ============================================================ */
+  const R_TICK_OUT = 141;
+  const R_TICK_MIN = 134;
+  const R_TICK_MAJ = 128;
+  const R_ARC = 118;
+  const CIRC = 2 * Math.PI * R_ARC;
+
+  function buildTicks() {
+    const g = $("#ticks");
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < 60; i++) {
+      const major = i % 5 === 0;
+      const a = (i / 60) * Math.PI * 2 - Math.PI / 2;
+      const r2 = major ? R_TICK_MAJ : R_TICK_MIN;
+      const x1 = 150 + Math.cos(a) * R_TICK_OUT;
+      const y1 = 150 + Math.sin(a) * R_TICK_OUT;
+      const x2 = 150 + Math.cos(a) * r2;
+      const y2 = 150 + Math.sin(a) * r2;
+      const ln = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      ln.setAttribute("x1", x1.toFixed(2));
+      ln.setAttribute("y1", y1.toFixed(2));
+      ln.setAttribute("x2", x2.toFixed(2));
+      ln.setAttribute("y2", y2.toFixed(2));
+      ln.setAttribute("class", "dial__tick" + (major ? " dial__tick--major" : ""));
+      frag.appendChild(ln);
+    }
+    g.appendChild(frag);
+    $("#arc").setAttribute("stroke-dasharray", CIRC.toFixed(2));
+  }
+
+  /* ============================================================
+     渲染
+     ============================================================ */
+  const fmt = (ms) => {
+    const t = Math.max(0, Math.ceil(ms / 1000));
+    return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0");
+  };
+
+  let lastTime = "";
+
+  function activeTask() {
+    return tasks.find((t) => t.id === state.activeTaskId && !t.finished) || null;
+  }
+
+  function renderTimer(timeOnly) {
+    const dur = state.total || 1;
+    const remain = Math.max(0, Math.min(state.remain, dur));
+    const p = Math.min(1, Math.max(0, 1 - remain / dur));
+
+    const txt = fmt(remain);
+    if (txt !== lastTime) {
+      $("#dialTime").textContent = txt;
+      lastTime = txt;
+    }
+
+    // 进度弧沿顺时针推进；游标跟着弧的末端走
+    $("#arc").setAttribute("stroke-dashoffset", (CIRC * (1 - p)).toFixed(2));
+    const ang = p * Math.PI * 2 - Math.PI / 2;
+    const nx = 150 + Math.cos(ang) * R_ARC;
+    const ny = 150 + Math.sin(ang) * R_ARC;
+    const needle = $("#needle");
+    needle.setAttribute("transform", `translate(${nx.toFixed(2)} ${ny.toFixed(2)})`);
+    needle.classList.toggle("dial__needle--idle", p <= 0.0001);
+
+    if (timeOnly) return;
+
+    document.body.dataset.mode = state.mode;
+    $("#dialMode").textContent = MODES[state.mode].name;
+
+    // 副读数：专注显示第几个番茄，休息显示下一轮
+    if (state.mode === "focus") {
+      $("#dialMeta").textContent = `第 ${Math.min(state.setDone + 1, CFG.setSize)} 个番茄`;
+    } else {
+      $("#dialMeta").textContent = state.mode === "long" ? "一组结束，长休息" : "短暂离开屏幕";
+    }
+
+    // 主按钮
+    const icon = state.running ? "#i-pause" : "#i-play";
+    $("#mainIcon").innerHTML = `<use href="${icon}"/>`;
+    $("#mainBtn").setAttribute("aria-label",
+      state.running ? "暂停" : (remain < dur ? "继续" : (state.mode === "focus" ? "开始专注" : "开始休息")));
+
+    $("#resetBtn").disabled = !state.running && remain === dur;
+
+    // 组内进度
+    const pips = $("#setPips");
+    if (pips.children.length !== CFG.setSize) {
+      pips.innerHTML = "";
+      for (let i = 0; i < CFG.setSize; i++) {
+        const el = document.createElement("span");
+        el.className = "set-pip";
+        pips.appendChild(el);
+      }
+    }
+    $$(".set-pip", pips).forEach((el, i) => el.classList.toggle("is-done", i < state.setDone));
+    $("#setText").textContent = `本轮 ${state.setDone} / ${CFG.setSize}`;
+
+    // 当前任务条
+    const t = activeTask();
+    $("#stripName").textContent = t ? t.name : "未选择任务";
+
+    // 今日读数
+    $("#roCount").textContent = state.today;
+    $("#roMin").textContent = Math.round(state.todayMs / 60000);
+    $("#roStreak").textContent = state.streak;
+  }
+
+  function renderTasks() {
+    const open = tasks.filter((t) => !t.finished);
+    const done = tasks.filter((t) => t.finished);
+
+    const row = (t) => {
+      const isCur = t.id === state.activeTaskId && !t.finished;
+      const pips = Array.from({ length: t.estimate }, (_, i) =>
+        `<i class="${i < t.done ? "is-done" : ""}"></i>`).join("");
+      return `<div class="task ${t.finished ? "is-done" : ""} ${isCur ? "is-current" : ""}" data-id="${t.id}">
+        <button class="task__main" data-act="toggle" aria-label="${t.finished ? "标记为未完成" : "标记为完成"}：${t.name}">
+          <span class="task__box"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg></span>
+          <span class="task__body">
+            <span class="task__name">${escapeHtml(t.name)}</span>
+            <span class="task__meta">
+              <span class="pips" aria-hidden="true">${pips}</span>
+              ${t.done} / ${t.estimate} 个番茄
+            </span>
+          </span>
+        </button>
+        ${isCur ? '<span class="task__current">当前</span>' : ""}
+      </div>`;
+    };
+
+    $("#taskListOpen").innerHTML = open.length
+      ? open.map(row).join("")
+      : '<p class="empty">还没有进行中的任务<br>点右上角新建一个</p>';
+    $("#taskListDone").innerHTML = done.length
+      ? done.map(row).join("")
+      : '<p class="empty">完成的会出现在这里</p>';
+
+    $("#openCount").textContent = open.length;
+    $("#doneCount").textContent = done.length;
+  }
+
+  function renderStats() {
+    $("#stToday").textContent = state.today;
+    $("#stMin").textContent = Math.round(state.todayMs / 60000);
+
+    const planned = tasks.reduce((a, t) => a + t.estimate, 0);
+    const finished = tasks.reduce((a, t) => a + Math.min(t.done, t.estimate), 0);
+    $("#stRate").textContent = planned ? Math.round((finished / planned) * 100) + "%" : "0%";
+
+    // 周图：最后一天用真实今日值
+    const data = weekData.map((d, i) =>
+      i === weekData.length - 1 ? { ...d, value: state.today } : d);
+    const max = Math.max(4, ...data.map((d) => d.value));
+    const total = data.reduce((a, d) => a + d.value, 0);
+    $("#weekTotal").textContent = `${total} 个番茄`;
+
+    const W = 320, H = 132;
+    const padB = 22, padT = 14;
+    const plotH = H - padB - padT;
+    const slot = W / data.length;
+    const barW = Math.round(slot * 0.52);
+
+    let svg = `<line class="chart-base" x1="0" y1="${H - padB}" x2="${W}" y2="${H - padB}"/>`;
+    data.forEach((d, i) => {
+      const h = (d.value / max) * plotH;
+      const x = i * slot + (slot - barW) / 2;
+      const y = H - padB - h;
+      if (d.value > 0) {
+        svg += `<rect class="chart-bar ${d.today ? "chart-bar--today" : ""}"
+          x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="1"/>`;
+        svg += `<text class="chart-value" x="${(x + barW / 2).toFixed(1)}" y="${Math.max(9, y - 6).toFixed(1)}">${d.value}</text>`;
+      }
+      svg += `<text class="chart-label ${d.today ? "chart-label--today" : ""}"
+        x="${(x + barW / 2).toFixed(1)}" y="${H - 6}">${d.label}</text>`;
+    });
+    $("#chart").innerHTML = svg;
+
+    // 连续天数刻度尺：14 格
+    const ruler = $("#streakRuler");
+    const N = 14;
+    ruler.innerHTML = Array.from({ length: N }, (_, i) => {
+      const cls = [i >= N - state.streak ? "is-on" : "", i === N - 1 ? "is-today" : ""].filter(Boolean).join(" ");
+      return `<i class="${cls}"></i>`;
+    }).join("");
+    $("#stStreak").textContent = state.streak;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function renderAll() {
+    renderTimer();
+    renderTasks();
+    renderStats();
+  }
+
+  /* ============================================================
+     计时逻辑：以 endAt 绝对时间为准，切后台/锁屏都不会走偏
+     ============================================================ */
+  let ticker = 0;
+
+  function stopTicker() {
+    if (ticker) { clearInterval(ticker); ticker = 0; }
+  }
+  function startTicker() {
+    if (ticker) return;
+    ticker = setInterval(() => {
+      if (!state.running) return;
+      const left = state.endAt - Date.now();
+      if (left <= 0) { complete(); return; }
+      state.remain = left;
+      renderTimer(true);
+    }, 200);
+  }
+
+  function durationOf(mode) {
+    return CFG[mode === "focus" ? "focus" : mode] * 60000;
+  }
+
+  function start() {
+    if (state.running) return;
+    if (state.remain <= 0) {
+      state.total = durationOf(state.mode);
+      state.remain = state.total;
+    }
+    state.running = true;
+    state.endAt = Date.now() + state.remain;
+    lastTime = "";
+    startTicker();
+    renderTimer();
+    buzz(10);
+    toast(state.mode === "focus" ? "开始专注" : "开始休息");
+  }
+
+  function pause() {
+    if (!state.running) return;
+    state.remain = Math.max(0, state.endAt - Date.now());
+    state.running = false;
+    state.endAt = 0;
+    stopTicker();
+    renderTimer();
+  }
+
+  function toggle() { state.running ? pause() : start(); }
+
+  function reset() {
+    state.running = false;
+    state.endAt = 0;
+    stopTicker();
+    state.total = durationOf(state.mode);
+    state.remain = state.total;
+    lastTime = "";
+    renderTimer();
+    buzz(6);
+  }
+
+  function setMode(mode, autoStart) {
+    state.mode = mode;
+    state.total = durationOf(mode);
+    state.remain = state.total;
+    state.running = false;
+    state.endAt = 0;
+    stopTicker();
+    lastTime = "";
+    if (autoStart) start();
+    else renderTimer();
+  }
+
+  function nextMode(finished) {
+    if (finished !== "focus") return "focus";
+    return state.setDone >= CFG.setSize ? "long" : "short";
+  }
+
+  function complete() {
+    const finished = state.mode;
+    state.running = false;
+    state.endAt = 0;
+    state.remain = 0;
+    stopTicker();
+
+    if (finished === "focus") {
+      state.today += 1;
+      state.todayMs += durationOf("focus");
+      state.setDone = Math.min(state.setDone + 1, CFG.setSize);
+
+      // 计入当前任务
+      const t = activeTask();
+      if (t) {
+        t.done += 1;
+        if (t.done >= t.estimate) t.finished = true;
+      }
+      save();
+    }
+
+    chime();
+    buzz(finished === "focus" ? 40 : 20);
+    renderAll();
+    toast(finished === "focus" ? "这一轮完成了" : "休息结束");
+
+    const next = nextMode(finished);
+    if (finished === "long") state.setDone = 0;
+    const auto = finished === "focus" ? CFG.autoBreak : CFG.autoFocus;
+
+    setTimeout(() => {
+      if (state.running || state.remain > 0) return;
+      setMode(next, auto);
+    }, 900);
+  }
+
+  function skip() {
+    buzz(6);
+    const from = state.mode;
+    const next = nextMode(from);
+    if (from === "long") state.setDone = 0;
+    setMode(next, false);
+    toast("已跳过这一轮");
+  }
+
+  /* ============================================================
+     声音：Web Audio 合成，无外部资源
+     ============================================================ */
+  let audio = null;
+  function ensureAudio() {
+    if (!CFG.sound) return null;
+    try {
+      if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === "suspended") audio.resume();
+      return audio;
+    } catch { return null; }
+  }
+  function beep(f, at, dur, gain) {
+    const a = audio;
+    if (!a) return;
+    const o = a.createOscillator();
+    const g = a.createGain();
+    o.type = "sine";
+    o.frequency.value = f;
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(gain, at + 0.014);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    o.connect(g).connect(a.destination);
+    o.start(at);
+    o.stop(at + dur + 0.02);
+  }
+  function chime() {
+    if (!CFG.sound) return;
+    const a = ensureAudio();
+    if (!a) return;
+    const t = a.currentTime + 0.02;
+    beep(587, t, 0.18, 0.14);
+    beep(784, t + 0.17, 0.18, 0.13);
+    beep(1046, t + 0.34, 0.34, 0.11);
+  }
+  function buzz(ms) {
+    if (!CFG.vibrate || !navigator.vibrate) return;
+    try { navigator.vibrate(ms); } catch {}
+  }
+
+  let toastTimer = 0;
+  function toast(msg) {
+    const el = $("#toast");
+    el.textContent = msg;
+    el.classList.add("is-on");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("is-on"), 1800);
+  }
+
+  /* ============================================================
+     视图切换
+     ============================================================ */
+  function showView(name) {
+    state.view = name;
+    $$(".view").forEach((v) => v.classList.toggle("is-active", v.id === "view-" + name));
+    $$(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.view === name)));
+  }
+
+  /* ============================================================
+     抽屉
+     ============================================================ */
+  function openSheet(id) {
+    $("#scrim").classList.add("is-open");
+    $(id).classList.add("is-open");
+    document.body.style.overflow = "hidden";
+  }
+  function closeSheets() {
+    $("#scrim").classList.remove("is-open");
+    $$(".sheet").forEach((s) => s.classList.remove("is-open"));
+    document.body.style.overflow = "";
+  }
+
+  /* ============================================================
+     设置
+     ============================================================ */
+  const stepperValues = { focus: CFG.focus, short: CFG.short, long: CFG.long, setSize: CFG.setSize, estimate: 2 };
+
+  function paintStepper(st) {
+    const key = st.dataset.key;
+    const unit = st.dataset.unit;
+    const val = stepperValues[key];
+    const min = +st.dataset.min;
+    const max = +st.dataset.max;
+    st.querySelector(".stepper__val").innerHTML = `${val}<small>${unit}</small>`;
+    const btns = st.querySelectorAll("button");
+    btns[0].disabled = val <= min;
+    btns[1].disabled = val >= max;
+  }
+
+  function bindSteppers() {
+    $$(".stepper").forEach((st) => {
+      const key = st.dataset.key;
+      st.addEventListener("click", (e) => {
+        const btn = e.target.closest("button");
+        if (!btn) return;
+        const min = +st.dataset.min;
+        const max = +st.dataset.max;
+        const next = Math.min(max, Math.max(min, stepperValues[key] + Number(btn.dataset.step)));
+        if (next === stepperValues[key]) return;
+        stepperValues[key] = next;
+
+        if (key !== "estimate") {
+          CFG[key] = next;
+          // 未开始的计时同步新时长
+          if (!state.running && state.remain === state.total) {
+            if (key === state.mode) {
+              state.total = durationOf(state.mode);
+              state.remain = state.total;
+              lastTime = "";
+            }
+          }
+          save();
+          renderAll();
+        }
+        paintStepper(st);
+      });
+      paintStepper(st);
+    });
+  }
+
+  function bindSwitches() {
+    const map = [
+      ["#swAutoBreak", "autoBreak"],
+      ["#swAutoFocus", "autoFocus"],
+      ["#swSound", "sound"],
+      ["#swVibrate", "vibrate"],
+    ];
+    map.forEach(([sel, key]) => {
+      const el = $(sel);
+      el.checked = !!CFG[key];
+      el.addEventListener("change", () => {
+        CFG[key] = el.checked;
+        save();
+        buzz(5);
+        if (key === "sound" && el.checked) ensureAudio();
+      });
+    });
+  }
+
+  /* ============================================================
+     任务操作
+     ============================================================ */
+  function bindTaskList() {
+    ["#taskListOpen", "#taskListDone"].forEach((sel) => {
+      $(sel).addEventListener("click", (e) => {
+        const main = e.target.closest(".task__main");
+        if (!main) return;
+        const id = main.closest(".task").dataset.id;
+        const t = tasks.find((x) => x.id === id);
+        if (!t) return;
+
+        t.finished = !t.finished;
+        if (t.finished && state.activeTaskId === id) {
+          const nextOpen = tasks.find((x) => !x.finished);
+          state.activeTaskId = nextOpen ? nextOpen.id : null;
+        } else if (!t.finished) {
+          state.activeTaskId = id;
+        }
+        save();
+        renderTasks();
+        renderTimer();
+        buzz(6);
+      });
+    });
+  }
+
+  function bindTaskSheet() {
+    $("#addTaskBtn").addEventListener("click", () => {
+      $("#taskName").value = "";
+      $("#taskError").textContent = "";
+      stepperValues.estimate = 2;
+      const est = document.querySelector('.stepper[data-key="estimate"]');
+      paintStepper(est);
+      openSheet("#taskSheet");
+      setTimeout(() => $("#taskName").focus(), 260);
+    });
+
+    $("#saveTask").addEventListener("click", () => {
+      const name = $("#taskName").value.trim();
+      if (!name) {
+        $("#taskError").textContent = "给任务起个名字";
+        $("#taskName").focus();
+        return;
+      }
+      if (tasks.some((t) => t.name === name && !t.finished)) {
+        $("#taskError").textContent = "已经有一个同名任务了";
+        return;
+      }
+      const t = {
+        id: "t" + Date.now().toString(36),
+        name,
+        done: 0,
+        estimate: stepperValues.estimate,
+        finished: false,
+      };
+      tasks.unshift(t);
+      state.activeTaskId = t.id;
+      save();
+      renderTasks();
+      renderTimer();
+      closeSheets();
+      toast("任务已创建");
+      buzz(8);
+    });
+
+    $("#taskName").addEventListener("input", () => { $("#taskError").textContent = ""; });
+    $("#taskName").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); $("#saveTask").click(); }
+    });
+  }
+
+  /* ============================================================
+     事件绑定
+     ============================================================ */
+  function bind() {
+    $("#mainBtn").addEventListener("click", toggle);
+    $("#resetBtn").addEventListener("click", reset);
+    $("#skipBtn").addEventListener("click", skip);
+
+    $("#taskStrip").addEventListener("click", () => {
+      showView("tasks");
+      const open = tasks.filter((t) => !t.finished);
+      if (!open.length) toast("先新建一个任务");
+    });
+
+    $$(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => showView(tab.dataset.view));
+    });
+
+    $("#openSettings").addEventListener("click", () => openSheet("#settingsSheet"));
+    $("#scrim").addEventListener("click", closeSheets);
+    $$("[data-close]").forEach((b) => b.addEventListener("click", closeSheets));
+
+    $("#clearData").addEventListener("click", () => {
+      state.today = 0;
+      state.todayMs = 0;
+      state.streak = 0;
+      state.setDone = 0;
+      tasks.forEach((t) => { t.done = 0; t.finished = false; });
+      save();
+      renderAll();
+      closeSheets();
+      toast("记录已清除");
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { closeSheets(); return; }
+      // 抽屉打开时不让空格触发计时
+      const inSheet = document.querySelector(".sheet.is-open");
+      if (inSheet) return;
+      if (e.target.tagName === "INPUT") return;
+      if (e.code === "Space") { e.preventDefault(); toggle(); }
+    });
+
+    // 回到前台时按绝对时间校正
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden || !state.running) return;
+      const left = state.endAt - Date.now();
+      if (left <= 0) complete();
+      else { state.remain = left; renderTimer(); }
+    });
+
+    window.addEventListener("pagehide", save);
+  }
+
+  /* ============================================================
+     启动
+     ============================================================ */
+  function init() {
+    load();
+    stepperValues.focus = CFG.focus;
+    stepperValues.short = CFG.short;
+    stepperValues.long = CFG.long;
+    stepperValues.setSize = CFG.setSize;
+
+    state.total = durationOf(state.mode);
+    state.remain = state.total;
+
+    if (state.activeTaskId && !tasks.some((t) => t.id === state.activeTaskId)) {
+      const first = tasks.find((t) => !t.finished);
+      state.activeTaskId = first ? first.id : null;
+    }
+
+    buildTicks();
+    bindSteppers();
+    bindSwitches();
+    bindTaskList();
+    bindTaskSheet();
+    bind();
+    renderAll();
+    showView("timer");
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+</script>
+
+
+</html>

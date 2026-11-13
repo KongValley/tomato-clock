@@ -1,0 +1,16 @@
+# 构建产物
+android/build/
+dist/*.idsig
+
+# 签名密钥库：绝不提交。首次运行 build.sh 会自动生成
+android/signing/
+
+# 工具与 IDE
+.zcode/
+__pycache__/
+*.pyc
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini
